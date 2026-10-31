@@ -22,7 +22,9 @@ import type {
   Rating,
   RatingInput,
   Role,
+  SharedWishInput,
   Wish,
+  WishRecipeInput,
 } from "@/lib/types";
 import {
   compressImage,
@@ -74,8 +76,14 @@ interface KitchenContextValue {
     wishlistId?: string,
   ) => Promise<string | null>;
   setDishActive: (id: string, active: boolean) => Promise<boolean>;
-  addWish: (name: string, note: string) => Promise<boolean>;
-  approveWish: (wishId: string, dishId: string) => Promise<boolean>;
+  addWish: (title: string, note: string) => Promise<boolean>;
+  addSharedWish: (input: SharedWishInput) => Promise<boolean>;
+  markWishReady: (wishId: string, dishId: string) => Promise<boolean>;
+  completeWish: (
+    wishId: string,
+    patch: WishRecipeInput,
+    dish: DishInput,
+  ) => Promise<boolean>;
   deleteWish: (wishId: string) => Promise<boolean>;
   saveRating: (input: RatingInput) => Promise<boolean>;
   uploadImage: (file: File) => Promise<string>;
@@ -285,7 +293,7 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
       setBusyCount((count) => count + 1);
       try {
         const dishId = await kitchenApi.saveDish(input, id);
-        if (wishlistId) await kitchenApi.approveWish(wishlistId, dishId);
+        if (wishlistId) await kitchenApi.markWishReady(wishlistId, dishId);
         await refreshSilently();
         notify(id ? "菜谱已更新" : "新菜已上架 🎉", "success");
         return dishId;
@@ -309,14 +317,29 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
   );
 
   const addWish = useCallback(
-    (name: string, note: string) =>
-      run(() => kitchenApi.addWish(name, note), "心愿已经记下啦"),
+    (title: string, note: string) =>
+      run(() => kitchenApi.addWish(title, note), "心愿已经记下啦"),
     [run],
   );
 
-  const approveWish = useCallback(
+  const addSharedWish = useCallback(
+    (input: SharedWishInput) =>
+      run(() => kitchenApi.addSharedWish(input), "已经收进心愿收件箱啦"),
+    [run],
+  );
+
+  const markWishReady = useCallback(
     (wishId: string, dishId: string) =>
-      run(() => kitchenApi.approveWish(wishId, dishId), "心愿已加入菜单"),
+      run(() => kitchenApi.markWishReady(wishId, dishId), "心愿已实现"),
+    [run],
+  );
+
+  const completeWish = useCallback(
+    (wishId: string, patch: WishRecipeInput, dish: DishInput) =>
+      run(
+        () => kitchenApi.completeWish(wishId, patch, dish),
+        "菜谱整理好啦，已经上架 🎉",
+      ),
     [run],
   );
 
@@ -412,7 +435,9 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
       saveDish,
       setDishActive,
       addWish,
-      approveWish,
+      addSharedWish,
+      markWishReady,
+      completeWish,
       deleteWish,
       saveRating,
       uploadImage,
@@ -444,7 +469,9 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
       saveDish,
       setDishActive,
       addWish,
-      approveWish,
+      addSharedWish,
+      markWishReady,
+      completeWish,
       deleteWish,
       saveRating,
       uploadImage,

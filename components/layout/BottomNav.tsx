@@ -28,7 +28,9 @@ export function BottomNav() {
 
   if (!role) return null;
 
-  const pendingWishes = wishlist.filter((wish) => wish.status === "pending").length;
+  const pendingWishes = wishlist.filter(
+    (wish) => wish.status === "pending_review",
+  ).length;
   const dinerCount = tonight?.items.length ?? 0;
   const pendingItems =
     tonight?.items.filter((item) => item.status !== "served").length ?? 0;

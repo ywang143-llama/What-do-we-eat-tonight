@@ -257,6 +257,13 @@ join public.dishes d on d.id = demo_items.dish_id;
 -- Two wishes waiting for the chef.
 -- ------------------------------------------------------------
 
-insert into public.wishlist (name, note, status) values
-  ('麻辣香锅', '想吃微辣的，多加藕片和午餐肉。', 'pending'),
-  ('番茄牛腩', '天气冷了，想喝一锅热汤。', 'pending');
+insert into public.wishlist (title, note, status, source, rednote_url) values
+  ('麻辣香锅', '想吃微辣的，多加藕片和午餐肉。', 'pending_review', 'manual', null),
+  ('番茄牛腩', '天气冷了，想喝一锅热汤。', 'pending_review', 'manual', null),
+  (
+    '小炒黄牛肉（小红书收藏）',
+    '牛肉逆着纹理切薄片，大火快炒 30 秒就出锅。',
+    'pending_review',
+    'share',
+    'https://www.xiaohongshu.com/search_result?keyword=%E5%B0%8F%E7%82%92%E9%BB%84%E7%89%9B%E8%82%89'
+  );

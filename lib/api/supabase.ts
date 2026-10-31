@@ -2,12 +2,15 @@ import type { KitchenApi } from "@/lib/api/types";
 import { DISH_IMAGE_BUCKET, supabase } from "@/lib/supabase";
 import type {
   Dish,
+  DishInput,
   ItemStatus,
   KitchenSnapshot,
   Order,
   OrderItem,
   Rating,
+  SharedWishInput,
   Wish,
+  WishRecipeInput,
 } from "@/lib/types";
 import { createId, todayISO } from "@/lib/utils";
 
@@ -25,6 +28,9 @@ function explain(message: string): string {
   }
   if (/anonymous sign-ins are disabled/i.test(message)) {
     return "Supabase 匿名登录未开启（不影响点餐，可在 Authentication 中开启）";
+  }
+  if (/wishlist_rednote_pending_idx/i.test(message)) {
+    return "这条笔记已经在心愿收件箱里啦";
   }
   return message;
 }
@@ -83,6 +89,64 @@ function mapOrder(row: any): Order {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapWish(row: any): Wish {
+  return {
+    id: row.id,
+    title: row.title ?? row.name ?? "小心愿",
+    note: row.note ?? null,
+    status: row.status === "ready" || row.status === "approved"
+      ? "ready"
+      : "pending_review",
+    source: row.source === "share" ? "share" : "manual",
+    dish_id: row.dish_id ?? null,
+    calories: typeof row.calories === "number" ? row.calories : null,
+    ingredients: Array.isArray(row.ingredients) ? row.ingredients : [],
+    cover_image: row.cover_image ?? null,
+    rednote_url: row.rednote_url ?? null,
+    created_at: row.created_at,
+    approved_at: row.approved_at ?? null,
+  };
+}
+
+function dishPayload(input: DishInput) {
+  return {
+    name: input.name.trim(),
+    category: input.category,
+    calories: Math.max(0, Math.round(input.calories)),
+    emoji: input.emoji || null,
+    image_url: input.image_url,
+    recipe_steps: input.recipe_steps.map((step) => step.trim()).filter(Boolean),
+    recipe_link: input.recipe_link?.trim() || null,
+    is_active: input.is_active,
+  };
+}
+
+async function writeDish(input: DishInput, id?: string): Promise<string> {
+  const db = client();
+  const payload = dishPayload(input);
+  if (!payload.name) throw new Error("先给这道菜起个名字吧");
+
+  if (id) {
+    const { data, error } = await db
+      .from("dishes")
+      .update(payload)
+      .eq("id", id)
+      .select("id")
+      .single();
+    if (error) fail(error, "菜品保存失败");
+    return data.id as string;
+  }
+
+  const { data, error } = await db
+    .from("dishes")
+    .insert(payload)
+    .select("id")
+    .single();
+  if (error) fail(error, "菜品保存失败");
+  return data.id as string;
+}
+
 export const supabaseApi: KitchenApi = {
   mode: "supabase",
 
@@ -109,7 +173,7 @@ export const supabaseApi: KitchenApi = {
     return {
       dishes: (dishResult.data ?? []) as Dish[],
       orders: (orderResult.data ?? []).map(mapOrder),
-      wishlist: (wishResult.data ?? []) as Wish[],
+      wishlist: (wishResult.data ?? []).map(mapWish),
       ratings: (ratingResult.data ?? []) as Rating[],
     } satisfies KitchenSnapshot;
   },
@@ -215,37 +279,7 @@ export const supabaseApi: KitchenApi = {
   },
 
   async saveDish(input, id) {
-    const db = client();
-    const payload = {
-      name: input.name.trim(),
-      category: input.category,
-      calories: Math.max(0, Math.round(input.calories)),
-      emoji: input.emoji || null,
-      image_url: input.image_url,
-      recipe_steps: input.recipe_steps.map((step) => step.trim()).filter(Boolean),
-      recipe_link: input.recipe_link?.trim() || null,
-      is_active: input.is_active,
-    };
-    if (!payload.name) throw new Error("先给这道菜起个名字吧");
-
-    if (id) {
-      const { data, error } = await db
-        .from("dishes")
-        .update(payload)
-        .eq("id", id)
-        .select("id")
-        .single();
-      if (error) fail(error, "菜品保存失败");
-      return data.id as string;
-    }
-
-    const { data, error } = await db
-      .from("dishes")
-      .insert(payload)
-      .select("id")
-      .single();
-    if (error) fail(error, "菜品保存失败");
-    return data.id as string;
+    return writeDish(input, id);
   },
 
   async setDishActive(id, active) {
@@ -256,27 +290,79 @@ export const supabaseApi: KitchenApi = {
     if (error) fail(error, "菜品状态更新失败");
   },
 
-  async addWish(name, note) {
-    const trimmed = name.trim();
+  async addWish(title, note) {
+    const trimmed = title.trim();
     if (!trimmed) throw new Error("写下想吃的那道菜吧");
     const { error } = await client().from("wishlist").insert({
-      name: trimmed,
+      title: trimmed,
       note: note.trim() || null,
-      status: "pending",
+      status: "pending_review",
+      source: "manual",
     });
     if (error) fail(error, "心愿没有送到，再试一次");
   },
 
-  async approveWish(wishId, dishId) {
+  async addSharedWish({ title, rednote_url, note }: SharedWishInput) {
+    const db = client();
+    const trimmed = title.trim();
+    if (!trimmed) throw new Error("这条分享没有菜名，试试换个方式收藏吧");
+
+    if (rednote_url) {
+      const { data: duplicate, error: findError } = await db
+        .from("wishlist")
+        .select("id")
+        .eq("rednote_url", rednote_url)
+        .eq("status", "pending_review")
+        .limit(1)
+        .maybeSingle();
+      if (findError) fail(findError, "心愿收件箱读取失败");
+      if (duplicate) throw new Error("这条笔记已经在心愿收件箱里啦");
+    }
+
+    const { error } = await db.from("wishlist").insert({
+      title: trimmed,
+      note: note?.trim() || null,
+      status: "pending_review",
+      source: "share",
+      rednote_url,
+    });
+    if (error) fail(error, "分享没有送到，再试一次");
+  },
+
+  async markWishReady(wishId, dishId) {
     const { error } = await client()
       .from("wishlist")
       .update({
-        status: "approved",
+        status: "ready",
         dish_id: dishId,
         approved_at: new Date().toISOString(),
       })
       .eq("id", wishId);
     if (error) fail(error, "心愿状态更新失败");
+  },
+
+  async completeWish(wishId, patch: WishRecipeInput, input: DishInput) {
+    const db = client();
+    const dishId = await writeDish(input);
+
+    const { error } = await db
+      .from("wishlist")
+      .update({
+        title: patch.title.trim() || input.name.trim(),
+        calories: patch.calories,
+        ingredients: patch.ingredients
+          .map((item) => item.trim())
+          .filter(Boolean),
+        cover_image: patch.cover_image,
+        rednote_url: patch.rednote_url,
+        status: "ready",
+        dish_id: dishId,
+        approved_at: new Date().toISOString(),
+      })
+      .eq("id", wishId);
+    if (error) fail(error, "心愿保存失败，菜已经做好了，可再试一次整理");
+
+    return dishId;
   },
 
   async deleteWish(wishId) {
