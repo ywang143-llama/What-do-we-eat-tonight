@@ -2,12 +2,14 @@
   "name": "tonights-kitchen",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "今晚吃什么 · A cozy dinner ordering PWA for two.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"tests/*.test.ts\"",
     "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
