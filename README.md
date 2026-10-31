@@ -6,6 +6,7 @@ The entire UI is in Simplified Chinese. When Supabase is not configured the app 
 
 - **Diner (点餐员)** — browse a categorized menu, build tonight's order, write wishlist requests, rate past dinners.
 - **Chef (大厨)** — see tonight's live order, toggle dishes between 备餐中 / 已上菜, manage the menu, upload dish photos, turn wishes into real dishes.
+- **Shared from RedNote (小红书)** — share a note to the installed app and it lands in the chef's wish inbox, ready for an AI-assisted quick fill.
 
 Built with **Next.js 16 (App Router) · React 19 · Tailwind CSS 4 · Supabase · PWA**.
 
@@ -36,6 +37,7 @@ Choose **点餐员** or **大厨** on the landing screen and start using the app
 | `npm run build` | Production build |
 | `npm start` | Serve the production build (needed to test PWA install/offline) |
 | `npm run typecheck` | TypeScript check without emitting |
+| `npm test` | Unit tests for the `/import` parser and AI draft normaliser (Node 22.18+ / 24, no extra dependencies) |
 | `npm run icons` | Regenerate the PNG app icons in `public/icons` |
 
 ---
@@ -142,6 +144,7 @@ Supabase sync works over the internet, so after deploying to Vercel you can use 
    | --- | --- |
    | `NEXT_PUBLIC_SUPABASE_URL` | your Supabase project URL |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | your Supabase anon public key |
+   | `OPENROUTER_API_KEY` | *(optional)* server-side key for the AI auto-fill button |
 
    Add them to **Production**, **Preview**, and **Development**.
 5. Click **Deploy**.
@@ -197,6 +200,48 @@ The manifest lives at [`public/manifest.json`](public/manifest.json) and the ser
 
 > After deploying a new version, the next navigation fetches fresh HTML. If you ever need to force an update, bump `VERSION` at the top of `public/sw.js` (e.g. `v1` → `v2`).
 
+### Share a RedNote note to the app
+
+`public/manifest.json` declares a **Web Share Target**:
+
+```json
+"share_target": {
+  "action": "/import",
+  "method": "GET",
+  "params": { "title": "title", "text": "text", "url": "url" }
+}
+```
+
+1. Install the app to the home screen (required — a browser tab cannot receive shares).
+2. In 小红书 open a note → **分享** → **今晚吃什么**.
+3. The app opens `/import?title=…&text=…&url=…`, saves the note as a `pending_review` wish and shows a quick toast.
+4. The chef opens **心愿 → 心愿收件箱**, taps **查看原笔记** or **整理菜谱** to complete it.
+
+Notes:
+
+- Web Share Target is supported on **Android / Chromium and Edge**. iOS Safari does not implement it yet; use 心愿 → write the dish manually there.
+- Links and share boilerplate are cleaned up by [`lib/share-import.ts`](lib/share-import.ts); the same URL is never queued twice.
+- The same route works in local demo mode, so you can paste a share URL into the address bar to try it without a phone.
+
+---
+
+## Optional: AI auto-fill with OpenRouter
+
+The chef's **整理菜谱** sheet has an **自动填写食材和热量** button. It sends the note text and/or a screenshot to `POST /api/ai/recipe`, which calls [OpenRouter](https://openrouter.ai) and returns a title, category, estimated calories, ingredients and steps.
+
+1. Create a key at <https://openrouter.ai/keys>.
+2. Add it to `.env.local` (and to your Vercel project):
+
+   ```env
+   OPENROUTER_API_KEY=sk-or-v1-...
+   # optional: any image-capable OpenRouter model
+   OPENROUTER_MODEL=openai/gpt-4o-mini
+   ```
+
+3. Restart `npm run dev` (or redeploy on Vercel).
+
+The key is **server-side only** — it has no `NEXT_PUBLIC_` prefix, so it is never included in the browser bundle. Without a key the route answers `503` and the modal simply asks you to fill the form by hand; the app never breaks. Requests are throttled to 8 per minute per IP.
+
 ---
 
 ## How it works
@@ -211,7 +256,12 @@ The manifest lives at [`public/manifest.json`](public/manifest.json) and the ser
 
 ### Wishes → menu
 
-The diner writes a wish (`name + note`). The chef opens **心愿** → **做成这道菜**. The dish form opens prefilled; saving creates the dish and marks the wish `approved` with a link to the new dish.
+A wish is either `manual` (written on the diner's 心愿 page) or `share` (sent from RedNote through `/import`). Both start as `pending_review`:
+
+- **Manual wishes** appear under 待实现. The chef taps **做成这道菜**; the dish form opens prefilled and saving creates the dish.
+- **Shared wishes** appear in 心愿收件箱 with **查看原笔记** and **整理菜谱**. The review sheet can auto-fill title, category, calories, ingredients and steps with AI, and saving creates the dish, stores the reviewed ingredients/calories/cover on the wish and marks it `ready`.
+
+Either way the wish becomes `ready` with a link to the new dish, and the diner sees 大厨已经学会啦.
 
 ### Realtime
 
@@ -227,7 +277,7 @@ In Supabase mode the app subscribes to Postgres changes on all five tables and a
 | `orders` | One dinner per night: date, status (`draft` / `submitted` / `completed`), note, timestamps |
 | `order_items` | Dishes in an order with status (`pending` / `preparing` / `served`) |
 | `ratings` | One rating + comment per dish per order (unique on `order_id, dish_id`) |
-| `wishlist` | Future dish requests, optionally linked to an approved dish |
+| `wishlist` | Wishes from the diner plus RedNote shares awaiting review: `title`, `note`, `status` (`pending_review` / `ready`), `source` (`manual` / `share`), `rednote_url`, `cover_image`, `calories`, `ingredients`, optional link to the created dish |
 
 Categories are fixed in [`lib/categories.ts`](lib/categories.ts): `staple`, `vegetable`, `meat`, `soup`, `snack`.
 
@@ -243,13 +293,15 @@ app/
   menu/                    Diner menu + categories + search
   order/                   Tonight's menu, note, submit
   wishlist/                Diner wishlist
+  import/                  Web Share Target landing (saves to wish inbox)
   history/                 Past dinners + star ratings
+  api/ai/recipe/           Server-only OpenRouter auto-fill route
   chef/
     orders/                Live kitchen order board
     menu/                  Menu management
     menu/new/              New dish form
     menu/[id]/             Edit dish form
-    wishlist/              Wish approval
+    wishlist/              Wish approval + shared-wish inbox
     wishlist/[id]/         Convert a wish into a dish
   settings/                Role, data mode, install guide, reset
   offline/                 Standalone offline page (the service worker also has a tiny built-in fallback)
@@ -258,12 +310,15 @@ components/
   layout/                  Header, bottom nav, toaster, error banner
   diner/DishCard.tsx
   chef/DishForm.tsx
+  chef/WishReviewModal.tsx Edit / complete recipe + AI auto-fill
   ui/                      Buttons, images, stars, dialogs, etc.
   pwa/                     Service worker registration, install UI
 lib/
   api/local.ts             localStorage demo adapter
   api/supabase.ts          Supabase adapter
   seed.ts                  25 mock dishes + demo history
+  share-import.ts          Share-target parameter parser
+  ai-recipe.ts             AI draft schema + normaliser
   categories.ts, types.ts, utils.ts
 public/
   manifest.json, sw.js, icons/
@@ -271,6 +326,8 @@ supabase/
   schema.sql, seed.sql
 scripts/
   generate-icons.mjs
+tests/
+  share-import.test.ts, ai-recipe.test.ts
 ```
 
 ---
@@ -308,6 +365,12 @@ The service worker is network-first for pages but may keep old static chunks. Bu
 **iOS input zoom**
 Inputs are set to 16px minimum in `globals.css`, which prevents Safari's auto-zoom.
 
+**The share sheet has no 今晚吃什么 entry**
+Web Share Target needs the app installed to the home screen and a Chromium browser on Android (iOS Safari does not support it yet). Open the app once after updating and make sure you are on the latest deployment.
+
+**AI 自动填写 says the key is missing, or nothing happens**
+The AI route needs `OPENROUTER_API_KEY` on the server (`.env.local` or Vercel env vars). Without it the button explains that instead of failing; the dish form still works by hand. Check the server logs for `[ai-recipe]` lines when the key is set. A `429`-style “AI 被叫得太勤” message just means you tapped it too many times in a minute.
+
 ---
 
 ## Security note
@@ -321,6 +384,8 @@ That means: **anyone who has your deployed URL and anon key can read and write t
 3. Make the `dish-images` bucket private and serve images through signed URLs, or keep it public but restrict writes.
 
 Do not put a Supabase `service_role` key in any `NEXT_PUBLIC_*` variable.
+
+`OPENROUTER_API_KEY` is server-side only: it is read inside `app/api/ai/recipe/route.ts` and never prefixed with `NEXT_PUBLIC_`. Keep it in `.env.local` or your Vercel environment settings — `.gitignore` excludes every `.env*` file except `.env.example`.
 
 ---
 

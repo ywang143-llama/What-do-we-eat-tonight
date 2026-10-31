@@ -19,6 +19,7 @@ Key product rules:
 - **All user-facing copy is Simplified Chinese.** Brand/proper nouns such as `Supabase` are fine.
 - The app must work immediately **without a backend**. When Supabase is not configured, it uses a fully seeded localStorage demo mode.
 - This is a **private two-person app**, not a multi-tenant product. There is no login screen; the role switch is a UI mode stored in the browser.
+- The **repository is public / open source**, so never commit secrets. Only `.env.example` with empty values belongs in git; docs and commit messages are English, UI copy stays Chinese.
 - The tone is warm, playful, and low-pressure. Avoid corporate or alarmist wording.
 
 ---
@@ -34,7 +35,7 @@ Key product rules:
 | Database client | `@supabase/supabase-js` |
 | PWA | Custom `public/manifest.json` + `public/sw.js` |
 | Deployment | Vercel Hobby |
-| Tests | No committed E2E suite; Playwright was used for manual smoke checks |
+| Tests | `node:test` unit tests in `tests/` (no extra dependency); Playwright was used for manual smoke checks |
 
 There is **no** component library, state manager, ORM, or CSS-in-JS. Prefer the existing primitives and Tailwind tokens.
 
@@ -46,6 +47,7 @@ There is **no** component library, state manager, ORM, or CSS-in-JS. Prefer the 
 npm install
 npm run dev
 npm run typecheck
+npm test
 npm run build
 npm start
 npm run icons
@@ -53,6 +55,7 @@ npm run icons
 
 - `npm run dev` — development server. **Service worker is intentionally disabled in dev.**
 - `npm run typecheck` — `tsc --noEmit`.
+- `npm test` — `node --test` over `tests/*.test.ts`. Node strips TypeScript natively, so there is no test framework dependency; imports inside tests must keep the `.ts` extension (enabled by `allowImportingTsExtensions`).
 - `npm run build` — production build.
 - `npm start` — serve the production build; required to test PWA install/offline behavior.
 - `npm run icons` — regenerate PNG app icons into `public/icons/`. Do not hand-edit generated PNGs.
@@ -83,15 +86,17 @@ app/layout.tsx
 | `/menu` | Diner menu, categories, search, add to tonight |
 | `/order` | Tonight's order, note, submit, status |
 | `/wishlist` | Diner wishlist |
+| `/import` | Web Share Target landing: parses `title` / `text` / `url`, saves a `pending_review` wish |
+| `/api/ai/recipe` | Server-only OpenRouter proxy for the wish-inbox AI auto-fill (`GET` reports whether a key is configured) |
 | `/history` | Past dinners + per-dish ratings/comments |
 | `/chef` | Redirects to `/chef/orders` |
 | `/chef/orders` | Live order board, item status, finish night |
 | `/chef/menu` | Menu management / active toggle |
 | `/chef/menu/new` | Add dish |
 | `/chef/menu/[id]` | Edit dish |
-| `/chef/wishlist` | Wish approval |
+| `/chef/wishlist` | Wish approval + shared-wish inbox |
 | `/chef/wishlist/[id]` | Convert a wish into a dish |
-| `/settings` | Role, data mode, install guide, demo reset |
+| `/settings` | Role, data mode, install guide, demo reset (local mode only) |
 | `/offline` | Standalone offline route (SW has its own inline fallback) |
 
 ### Data layer
@@ -128,9 +133,11 @@ When adding a new entity or mutation:
 | `Order` | order_date, status (`draft` / `submitted` / `completed`), note, timestamps, items |
 | `OrderItem` | order_id, dish_id, status (`pending` / `preparing` / `served`) |
 | `Rating` | order_id, dish_id, rating 1–5, comment; unique per order + dish |
-| `Wish` | name, note, status (`pending` / `approved`), dish_id, approved_at |
+| `Wish` | title, note, status (`pending_review` / `ready`), source (`manual` / `share`), rednote_url, cover_image, calories, ingredients[], dish_id |
 
 Order lifecycle: `draft → submitted → completed`. A completed order is not reused; a new draft is created for the next dinner.
+
+Wish lifecycle: `pending_review → ready`. Manual wishes and RedNote shares share the same table; `source` tells them apart (`share` items live in the chef's 心愿收件箱). `completeWish(wishId, patch, dish)` creates the dish and marks the wish `ready` in one step.
 
 Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new Date().toISOString().slice(0, 10)` for order dates.
 
@@ -138,20 +145,30 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 
 - Demo DB key: `tonights-kitchen:v1`.
 - Role key: `tonights-kitchen:role`.
-- Env: copy `.env.example` → `.env.local`.
-- **Never commit `.env.local` or a service-role key.**
+- Env: copy `.env.example` → `.env.local`. `.gitignore` ignores `.env*` except `.env.example`, so `.env.production` and `.env.development` are covered too.
+- **Never commit any `.env*` file or a service-role key.** Only the public anon/publishable key may ever reach the browser.
+- `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` are **server-only** (no `NEXT_PUBLIC_` prefix) and read inside `app/api/ai/recipe/route.ts`. Never move them into the client bundle.
+- `NEXT_PUBLIC_*` values are inlined at build time — restart `next dev`, or redeploy on Vercel, after changing them.
+- Reset: 设置 → 重置演示数据 calls `resetLocalData()` and reseeds the demo DB. Cloud mode has **no in-app reset** by design; wipe cloud data with SQL instead.
 - Cloud images go to the public `dish-images` bucket; local images are compressed data URLs.
 
 ### Backend
 
-- `supabase/schema.sql`: tables, indexes, RLS, storage bucket, realtime publication. Safe to re-run.
-- `supabase/seed.sql`: 25 dishes + one completed dinner + two wishes. Run **once**.
+- `supabase/schema.sql`: tables, indexes, RLS, storage bucket, realtime publication. Safe to re-run. It also migrates an older `wishlist` table (`name` → `title`, `pending`/`approved` → `pending_review`/`ready`, new share columns).
+- `supabase/seed.sql`: 25 dishes + one completed dinner + three wishes (one shared). Run **once**.
 - RLS is intentionally open to `anon, authenticated` for this private household app. This is a documented security trade-off, not a template for public multi-user apps.
 - If real multi-user support is added, replace the open policies and the role switch with real authentication.
 
+### Deployment (Vercel)
+
+- Framework preset: **Next.js**, auto-detected from `package.json`. No `vercel.json` — custom headers live in `next.config.ts`.
+- Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` for **Production**, **Preview**, and **Development**, otherwise the deploy silently falls back to local demo mode with no sync.
+- Redeploy after changing env vars; values are baked into the client bundle at build time.
+- Vercel's HTTPS is what makes the service worker and "Add to Home Screen" work.
+
 ### PWA
 
-- Manifest: `public/manifest.json`.
+- Manifest: `public/manifest.json` — also declares a `share_target` (`GET` → `/import?title=…&text=…&url=…`). Parsing lives in `lib/share-import.ts`; `/import` must keep its `useSearchParams` client code inside a `Suspense` boundary.
 - Service worker: `public/sw.js`.
 - Registration: `components/pwa/ServiceWorkerRegister.tsx`, production only.
 - Strategy: pages network-first, `/_next/static/*` cache-first, images cache-first, RSC requests skipped.
@@ -245,7 +262,7 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 - Keep the local demo adapter working for every feature — it is the default developer experience.
 - Do not add runtime dependencies for small UI needs; check existing components/icons first.
 - `README.md` is the source of truth for setup, env names, and PWA behavior. Update it when those change.
-- Do not commit `.next`, `node_modules`, or `.env.local`.
+- Do not commit `.next`, `node_modules`, or any `.env*` file. `.gitignore` allows only `.env.example`.
 
 ---
 
@@ -260,6 +277,7 @@ Before declaring work done:
    - Chef: see order → 备餐中 → 已上菜 → 结束今晚 → confirm.
    - History: open completed dinner → set stars → write comment.
    - Chef: add a dish → save → toggle active; convert a wish → save.
+   - Share import: open `/import?title=番茄牛腩&text=…&url=https://xhslink.com/a/abc`, confirm the success toast, then in 心愿 → 心愿收件箱 review it and save (with and without `OPENROUTER_API_KEY`).
    - Reload: demo data and role persist.
 4. Small-screen check at **360×640**: no overflow, fixed bars do not cover the last field, nav and toast do not overlap.
 5. PWA check (production only):
@@ -275,7 +293,11 @@ There is currently no committed E2E suite. If adding one, keep Playwright out of
 ## 9. Known limitations
 
 - Role switching is a UX mode, not authorization.
+- Web Share Target works on Android / Chromium and Edge only; iOS Safari has no share target, so iPhone users add wishes by hand.
+- The AI auto-fill needs `OPENROUTER_API_KEY`; without it the review modal stays fully usable but manual.
+- The AI route is unauthenticated (like the rest of the app) and only throttled in memory; don't expose it publicly without auth.
 - Supabase policies are open for a private household; not suitable for a public deployment.
+- Cloud mode has **no in-app data reset**; 重置演示数据 only exists in local mode.
 - Demo mode is per-browser only and bounded by localStorage quota.
 - One active dinner per day; completed orders move to history.
 - The service worker never runs in `next dev`.
