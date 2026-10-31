@@ -64,17 +64,18 @@ create table if not exists public.ratings (
   unique (order_id, dish_id)
 );
 
+-- Updated public.wishlist definition for link imports
 create table if not exists public.wishlist (
   id uuid primary key default gen_random_uuid(),
-  title text not null,
+  title text,
   note text,
   status text not null default 'pending_review' check (status in ('pending_review', 'ready')),
-  source text not null default 'manual' check (source in ('manual', 'share')),
+  dish_id uuid references public.dishes (id) on delete set null,
+  source text default 'rednote',
   rednote_url text,
   cover_image text,
-  calories integer check (calories is null or calories >= 0),
-  ingredients text[] not null default '{}',
-  dish_id uuid references public.dishes (id) on delete set null,
+  calories integer,
+  ingredients text[] default '{}',
   created_at timestamptz not null default now(),
   approved_at timestamptz
 );
