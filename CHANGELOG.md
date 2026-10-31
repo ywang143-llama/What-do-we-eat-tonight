@@ -24,8 +24,14 @@ the project uses [Conventional Commits](https://www.conventionalcommits.org/).
   steps. `OPENROUTER_API_KEY` stays server-side; `OPENROUTER_MODEL` is optional.
   The route is rate limited and fails soft so manual entry always works.
 - **Unit tests** — `npm test` runs `node:test` suites for the `/import`
-  parameter parser (`tests/share-import.test.ts`) and the AI draft normaliser
-  (`tests/ai-recipe.test.ts`).
+  parameter parser (`tests/share-import.test.ts`), the AI draft normaliser
+  (`tests/ai-recipe.test.ts`) and the localStorage adapter incl. share dedupe
+  and legacy migration (`tests/local-api.test.ts`).
+- **Playwright smoke test** — `npm run test:e2e` covers `/import` → 心愿收件箱 →
+  整理菜谱 → 已上架 at 360×640 against the demo kitchen. Playwright is a
+  devDependency; `playwright.config.ts` blanks the Supabase/OpenRouter env vars.
+- **CI** — `.github/workflows/ci.yml` runs tests, typecheck, build and the
+  Playwright job on every pull request.
 - **`CHANGELOG.md`** — this file.
 
 ### Changed

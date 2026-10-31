@@ -35,7 +35,7 @@ Key product rules:
 | Database client | `@supabase/supabase-js` |
 | PWA | Custom `public/manifest.json` + `public/sw.js` |
 | Deployment | Vercel Hobby |
-| Tests | `node:test` unit tests in `tests/` (no extra dependency); Playwright was used for manual smoke checks |
+| Tests | `node:test` unit tests in `tests/` (no extra dependency) + Playwright smoke tests in `e2e/` (devDependency only) |
 
 There is **no** component library, state manager, ORM, or CSS-in-JS. Prefer the existing primitives and Tailwind tokens.
 
@@ -48,6 +48,7 @@ npm install
 npm run dev
 npm run typecheck
 npm test
+npm run test:e2e
 npm run build
 npm start
 npm run icons
@@ -55,7 +56,8 @@ npm run icons
 
 - `npm run dev` — development server. **Service worker is intentionally disabled in dev.**
 - `npm run typecheck` — `tsc --noEmit`.
-- `npm test` — `node --test` over `tests/*.test.ts`. Node strips TypeScript natively, so there is no test framework dependency; imports inside tests must keep the `.ts` extension (enabled by `allowImportingTsExtensions`).
+- `npm test` — `node --test` over `tests/*.test.ts`, with `tests/register-alias.mjs` teaching Node the `@/` alias. Node strips TypeScript natively, so there is no test framework dependency; imports inside tests must keep the `.ts` extension (enabled by `allowImportingTsExtensions`).
+- `npm run test:e2e` — Playwright smoke tests in `e2e/`. Needs `npx playwright install chromium` once. `playwright.config.ts` starts `next dev` on port `3100` with empty Supabase/OpenRouter env vars, so tests always run against the localStorage demo kitchen and never touch real data or credits.
 - `npm run build` — production build.
 - `npm start` — serve the production build; required to test PWA install/offline behavior.
 - `npm run icons` — regenerate PNG app icons into `public/icons/`. Do not hand-edit generated PNGs.
@@ -270,23 +272,25 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 
 Before declaring work done:
 
-1. `npm run typecheck` passes.
-2. `npm run build` passes.
-3. Browser smoke test with no console/page errors:
+1. `npm test` passes.
+2. `npm run typecheck` passes.
+3. `npm run build` passes.
+4. `npm run test:e2e` passes for changes touching the share import / wish inbox (needs `npx playwright install chromium` once).
+5. Browser smoke test with no console/page errors:
    - Diner: add two dishes → open 今晚 → write note → submit.
    - Chef: see order → 备餐中 → 已上菜 → 结束今晚 → confirm.
    - History: open completed dinner → set stars → write comment.
    - Chef: add a dish → save → toggle active; convert a wish → save.
    - Share import: open `/import?title=番茄牛腩&text=…&url=https://xhslink.com/a/abc`, confirm the success toast, then in 心愿 → 心愿收件箱 review it and save (with and without `OPENROUTER_API_KEY`).
    - Reload: demo data and role persist.
-4. Small-screen check at **360×640**: no overflow, fixed bars do not cover the last field, nav and toast do not overlap.
-5. PWA check (production only):
+6. Small-screen check at **360×640**: no overflow, fixed bars do not cover the last field, nav and toast do not overlap.
+7. PWA check (production only):
    - `npm run build && npm start`
    - Load a page, wait for the service worker, reload online, then go offline.
    - Visited page still opens; unvisited page shows the inline offline screen.
-6. If Supabase is configured, verify against a scratch project by running `schema.sql` and `seed.sql`, then repeat the diner/chef flow. Do not test destructive changes against shared data.
+8. If Supabase is configured, verify against a scratch project by running `schema.sql` and `seed.sql`, then repeat the diner/chef flow. Do not test destructive changes against shared data.
 
-There is currently no committed E2E suite. If adding one, keep Playwright out of runtime dependencies and document the command here.
+`npm test` + `npm run typecheck` + `npm run build` + `npm run test:e2e` also run in CI on every PR (`.github/workflows/ci.yml`). The Playwright suite is the committed E2E layer — keep Playwright in `devDependencies` only, and never point it at a real Supabase project or OpenRouter key (the config blanks those env vars on purpose).
 
 ---
 
@@ -302,3 +306,13 @@ There is currently no committed E2E suite. If adding one, keep Playwright out of
 - One active dinner per day; completed orders move to history.
 - The service worker never runs in `next dev`.
 - Offline works for pages visited while the worker was active; the fallback covers the rest.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

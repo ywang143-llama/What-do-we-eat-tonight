@@ -37,8 +37,20 @@ Choose **点餐员** or **大厨** on the landing screen and start using the app
 | `npm run build` | Production build |
 | `npm start` | Serve the production build (needed to test PWA install/offline) |
 | `npm run typecheck` | TypeScript check without emitting |
-| `npm test` | Unit tests for the `/import` parser and AI draft normaliser (Node 22.18+ / 24, no extra dependencies) |
+| `npm test` | Unit tests for the `/import` parser, the AI draft normaliser and the localStorage adapter (Node 22.18+ / 24, no extra dependencies) |
+| `npm run test:e2e` | Playwright smoke test of the share-import flow (`npx playwright install chromium` once) |
 | `npm run icons` | Regenerate the PNG app icons in `public/icons` |
+
+### Tests
+
+Three layers, all runnable offline:
+
+1. **Unit tests** — `npm test` runs [`tests/`](tests) on Node's built-in `node:test` with native TypeScript type stripping:
+   - `share-import.test.ts` — the `/import` URL parameter parser
+   - `ai-recipe.test.ts` — category mapping, calorie clamping, tolerant JSON parsing
+   - `local-api.test.ts` — the localStorage adapter: share dedupe, `completeWish`, legacy-data migration
+2. **End-to-end smoke test** — `npm run test:e2e` drives Chromium through `/import` → 心愿收件箱 → 整理菜谱 → 已上架 at a 360×640 viewport. `playwright.config.ts` starts `next dev` with empty Supabase/OpenRouter env vars, so it always uses the demo kitchen and never touches real data or API credits. Playwright lives in `devDependencies` only.
+3. **CI** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `npm test`, `npm run typecheck`, `npm run build` and the Playwright job on every pull request.
 
 ---
 
