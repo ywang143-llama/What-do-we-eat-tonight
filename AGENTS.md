@@ -244,8 +244,7 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 - Client components need `"use client"`; most interactive pages/provider are client-side.
 - Keep the local demo adapter working for every feature — it is the default developer experience.
 - Do not add runtime dependencies for small UI needs; check existing components/icons first.
-- Preserve `post_development_roadmap.md` if present, but treat it as an **early draft**. It contains obsolete `VITE_SUPABASE_*` names and old table designs. `README.md` is the source of truth.
-- Update `README.md` when setup steps, env names, scripts, or PWA behavior change.
+- `README.md` is the source of truth for setup, env names, and PWA behavior. Update it when those change.
 - Do not commit `.next`, `node_modules`, or `.env.local`.
 
 ---
