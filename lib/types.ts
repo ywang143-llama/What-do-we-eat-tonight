@@ -6,7 +6,14 @@ export type ItemStatus = "pending" | "preparing" | "served";
 
 export type OrderStatus = "draft" | "submitted" | "completed";
 
-export type WishStatus = "pending" | "approved";
+/**
+ * `pending_review` — waiting in the chef's wish queue (written in-app or
+ * shared from RedNote). `ready` — turned into a real dish.
+ */
+export type WishStatus = "pending_review" | "ready";
+
+/** `manual` came from the diner's wishlist form, `share` from the share sheet. */
+export type WishSource = "manual" | "share";
 
 export interface Dish {
   id: string;
@@ -51,10 +58,15 @@ export interface Rating {
 
 export interface Wish {
   id: string;
-  name: string;
+  title: string;
   note: string | null;
   status: WishStatus;
+  source: WishSource;
   dish_id: string | null;
+  calories: number | null;
+  ingredients: string[];
+  cover_image: string | null;
+  rednote_url: string | null;
   created_at: string;
   approved_at: string | null;
 }
@@ -82,4 +94,20 @@ export interface RatingInput {
   dishId: string;
   rating: number;
   comment: string;
+}
+
+/** A wish that arrived through the Web Share Target (`/import`). */
+export interface SharedWishInput {
+  title: string;
+  rednote_url: string | null;
+  note: string | null;
+}
+
+/** The recipe details the chef fills in before a wish becomes a dish. */
+export interface WishRecipeInput {
+  title: string;
+  calories: number | null;
+  ingredients: string[];
+  cover_image: string | null;
+  rednote_url: string | null;
 }

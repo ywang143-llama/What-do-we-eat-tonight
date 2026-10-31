@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   ArrowRight,
   CheckCircle2,
+  ExternalLink,
   Heart,
   Plus,
   Sparkles,
@@ -27,13 +28,16 @@ export default function WishlistPage() {
   const [saving, setSaving] = useState(false);
 
   const pending = useMemo(
-    () => wishlist.filter((wish) => wish.status === "pending"),
+    () =>
+      wishlist
+        .filter((wish) => wish.status === "pending_review")
+        .sort((a, b) => b.created_at.localeCompare(a.created_at)),
     [wishlist],
   );
   const approved = useMemo(
     () =>
       wishlist
-        .filter((wish) => wish.status === "approved")
+        .filter((wish) => wish.status === "ready")
         .sort((a, b) =>
           (b.approved_at ?? b.created_at).localeCompare(
             a.approved_at ?? a.created_at,
@@ -107,6 +111,13 @@ export default function WishlistPage() {
         </div>
       </form>
 
+      <div className="mt-3 flex items-start gap-2.5 rounded-2xl border border-[#EAD8BF] bg-[#FBF1E1] px-3.5 py-3">
+        <ExternalLink className="mt-0.5 size-4 shrink-0 text-amber" />
+        <p className="text-[11px] leading-relaxed text-[#7E5B31]">
+          在小红书看到想吃的？用手机「分享」到今晚吃什么，就会自动躺进大厨的心愿收件箱。
+        </p>
+      </div>
+
       <section className="mt-6">
         <div className="mb-2.5 flex items-center justify-between px-0.5">
           <h2 className="text-[13px] font-bold text-ink">等大厨翻牌</h2>
@@ -126,16 +137,33 @@ export default function WishlistPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <h3 className="truncate text-[13.5px] font-bold text-ink">
-                      {wish.name}
+                      {wish.title}
                     </h3>
                     <span className="shrink-0 rounded-full bg-[#FCF1DE] px-1.5 py-0.5 text-[9px] font-semibold text-[#8A5E1F]">
                       等大厨翻牌
                     </span>
                   </div>
                   {wish.note ? (
-                    <p className="mt-1 text-[11.5px] leading-relaxed text-ink-soft">
+                    <p className="mt-1 line-clamp-2 text-[11.5px] leading-relaxed text-ink-soft">
                       {wish.note}
                     </p>
+                  ) : null}
+                  {wish.source === "share" ? (
+                    wish.rednote_url ? (
+                      <a
+                        href={wish.rednote_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-terracotta"
+                      >
+                        <ExternalLink className="size-3" />
+                        查看收藏的原笔记
+                      </a>
+                    ) : (
+                      <p className="mt-1.5 text-[10px] text-ink-soft/70">
+                        从分享收藏
+                      </p>
+                    )
                   ) : null}
                   <p className="mt-1.5 text-[9.5px] text-ink-soft/60">
                     {formatDate(todayISO(new Date(wish.created_at)))} 记下
@@ -180,7 +208,7 @@ export default function WishlistPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-[13px] font-bold text-ink">
-                      {dish?.name ?? wish.name}
+                      {dish?.name ?? wish.title}
                     </h3>
                     <p className="mt-0.5 flex items-center gap-1 text-[10.5px] font-medium text-[#58704B]">
                       <CheckCircle2 className="size-3" />

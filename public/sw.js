@@ -1,6 +1,6 @@
 /* Tonight's Kitchen service worker — offline shell + safe runtime caching. */
 
-const VERSION = "v2";
+const VERSION = "v3";
 const STATIC_CACHE = `tk-static-${VERSION}`;
 const PAGE_CACHE = `tk-pages-${VERSION}`;
 const IMAGE_CACHE = `tk-images-${VERSION}`;

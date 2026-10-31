@@ -103,7 +103,7 @@ function DishFormInner({
 
   useDocumentTitle(editing ? "编辑菜谱" : "添加新菜");
 
-  const [name, setName] = useState(dish?.name ?? wish?.name ?? "");
+  const [name, setName] = useState(dish?.name ?? wish?.title ?? "");
   const [category, setCategory] = useState<Category>(
     dish?.category ?? "staple",
   );
@@ -236,7 +236,7 @@ function DishFormInner({
               来自点餐员的心愿
             </p>
             <p className="mt-0.5 text-[12.5px] font-bold text-ink">
-              {wish.name}
+              {wish.title}
             </p>
             {wish.note ? (
               <p className="mt-0.5 text-[10.5px] leading-relaxed text-ink-soft">

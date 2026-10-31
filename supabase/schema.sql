@@ -66,9 +66,14 @@ create table if not exists public.ratings (
 
 create table if not exists public.wishlist (
   id uuid primary key default gen_random_uuid(),
-  name text not null,
+  title text not null,
   note text,
-  status text not null default 'pending' check (status in ('pending', 'approved')),
+  status text not null default 'pending_review' check (status in ('pending_review', 'ready')),
+  source text not null default 'manual' check (source in ('manual', 'share')),
+  rednote_url text,
+  cover_image text,
+  calories integer check (calories is null or calories >= 0),
+  ingredients text[] not null default '{}',
   dish_id uuid references public.dishes (id) on delete set null,
   created_at timestamptz not null default now(),
   approved_at timestamptz
@@ -78,7 +83,44 @@ comment on table public.dishes is 'Menu items the chef maintains.';
 comment on table public.orders is 'One dinner order per night.';
 comment on table public.order_items is 'Dishes in a dinner order + cooking status.';
 comment on table public.ratings is 'The diner''s rating for a dish in a completed order.';
-comment on table public.wishlist is 'Future dishes requested by the diner.';
+comment on table public.wishlist is 'Wishes from the diner, plus RedNote shares waiting in the chef''s inbox.';
+
+-- ------------------------------------------------------------
+-- 1b. Wishlist migration (for kitchens created before share-import)
+-- ------------------------------------------------------------
+-- Re-running this block is safe. It renames the old `name` column, adds the
+-- share-import columns and moves the old statuses onto the new ones.
+
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'wishlist' and column_name = 'name'
+  ) and not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'wishlist' and column_name = 'title'
+  ) then
+    alter table public.wishlist rename column name to title;
+  end if;
+end;
+$$;
+
+alter table public.wishlist add column if not exists title text;
+alter table public.wishlist add column if not exists source text not null default 'manual';
+alter table public.wishlist add column if not exists rednote_url text;
+alter table public.wishlist add column if not exists cover_image text;
+alter table public.wishlist add column if not exists calories integer;
+alter table public.wishlist add column if not exists ingredients text[] not null default '{}';
+
+alter table public.wishlist drop constraint if exists wishlist_status_check;
+update public.wishlist set status = 'pending_review' where status = 'pending';
+update public.wishlist set status = 'ready' where status = 'approved';
+alter table public.wishlist
+  add constraint wishlist_status_check check (status in ('pending_review', 'ready'));
+
+alter table public.wishlist drop constraint if exists wishlist_source_check;
+alter table public.wishlist
+  add constraint wishlist_source_check check (source in ('manual', 'share'));
 
 create index if not exists dishes_category_idx on public.dishes (category);
 create index if not exists dishes_active_idx on public.dishes (is_active);
@@ -87,6 +129,10 @@ create index if not exists orders_status_idx on public.orders (status);
 create index if not exists order_items_order_idx on public.order_items (order_id);
 create index if not exists ratings_dish_idx on public.ratings (dish_id);
 create index if not exists wishlist_status_idx on public.wishlist (status);
+-- One pending inbox item per shared note.
+create unique index if not exists wishlist_rednote_pending_idx
+  on public.wishlist (rednote_url)
+  where rednote_url is not null and status = 'pending_review';
 
 -- Keep updated_at fresh when a dish is edited.
 create or replace function public.touch_updated_at()

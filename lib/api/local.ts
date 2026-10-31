@@ -8,6 +8,9 @@ import type {
   Order,
   Rating,
   RatingInput,
+  SharedWishInput,
+  Wish,
+  WishRecipeInput,
 } from "@/lib/types";
 import { blobToDataURL, createId, todayISO } from "@/lib/utils";
 
@@ -19,6 +22,41 @@ function clone<T>(value: T): T {
 
 function emptySnapshot(): KitchenSnapshot {
   return { dishes: [], orders: [], ratings: [], wishlist: [] };
+}
+
+/** Rows written before the share-import feature used `name` / `pending` / `approved`. */
+function normalizeWish(row: Partial<Wish> & { name?: unknown }): Wish {
+  const legacyStatus = String(row.status ?? "");
+  const status = legacyStatus === "approved" || legacyStatus === "ready"
+    ? "ready"
+    : "pending_review";
+  const title =
+    typeof row.title === "string" && row.title.trim()
+      ? row.title
+      : typeof row.name === "string" && row.name.trim()
+        ? row.name
+        : "小心愿";
+
+  return {
+    id: String(row.id ?? createId("wish")),
+    title,
+    note: typeof row.note === "string" ? row.note : null,
+    status,
+    source: row.source === "share" ? "share" : "manual",
+    dish_id: typeof row.dish_id === "string" ? row.dish_id : null,
+    calories: typeof row.calories === "number" ? row.calories : null,
+    ingredients: Array.isArray(row.ingredients)
+      ? row.ingredients.map(String)
+      : [],
+    cover_image: typeof row.cover_image === "string" ? row.cover_image : null,
+    rednote_url:
+      typeof row.rednote_url === "string" ? row.rednote_url : null,
+    created_at:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+    approved_at: typeof row.approved_at === "string" ? row.approved_at : null,
+  };
 }
 
 function readDB(): KitchenSnapshot {
@@ -36,7 +74,9 @@ function readDB(): KitchenSnapshot {
       dishes: Array.isArray(parsed.dishes) ? parsed.dishes : [],
       orders: Array.isArray(parsed.orders) ? parsed.orders : [],
       ratings: Array.isArray(parsed.ratings) ? parsed.ratings : [],
-      wishlist: Array.isArray(parsed.wishlist) ? parsed.wishlist : [],
+      wishlist: Array.isArray(parsed.wishlist)
+        ? parsed.wishlist.map((wish) => normalizeWish(wish))
+        : [],
     };
   } catch {
     const seed = createSeedData();
@@ -211,30 +251,88 @@ export const localApi: KitchenApi = {
     writeDB(data);
   },
 
-  async addWish(name, note) {
+  async addWish(title, note) {
     const data = readDB();
-    const trimmed = name.trim();
+    const trimmed = title.trim();
     if (!trimmed) throw new Error("写下想吃的那道菜吧");
     data.wishlist.unshift({
       id: createId("wish"),
-      name: trimmed,
+      title: trimmed,
       note: note.trim() || null,
-      status: "pending",
+      status: "pending_review",
+      source: "manual",
       dish_id: null,
+      calories: null,
+      ingredients: [],
+      cover_image: null,
+      rednote_url: null,
       created_at: new Date().toISOString(),
       approved_at: null,
     });
     writeDB(data);
   },
 
-  async approveWish(wishId, dishId) {
+  async addSharedWish({ title, rednote_url, note }: SharedWishInput) {
+    const data = readDB();
+    const trimmed = title.trim();
+    if (!trimmed) throw new Error("这条分享没有菜名，试试换个方式收藏吧");
+
+    const duplicate = rednote_url
+      ? data.wishlist.find(
+          (wish) =>
+            wish.rednote_url === rednote_url && wish.status === "pending_review",
+        )
+      : undefined;
+    if (duplicate) throw new Error("这条笔记已经在心愿收件箱里啦");
+
+    data.wishlist.unshift({
+      id: createId("wish"),
+      title: trimmed,
+      note: note?.trim() || null,
+      status: "pending_review",
+      source: "share",
+      dish_id: null,
+      calories: null,
+      ingredients: [],
+      cover_image: null,
+      rednote_url,
+      created_at: new Date().toISOString(),
+      approved_at: null,
+    });
+    writeDB(data);
+  },
+
+  async markWishReady(wishId, dishId) {
     const data = readDB();
     const wish = data.wishlist.find((candidate) => candidate.id === wishId);
     if (!wish) throw new Error("找不到这条心愿");
-    wish.status = "approved";
+    wish.status = "ready";
     wish.dish_id = dishId;
     wish.approved_at = new Date().toISOString();
     writeDB(data);
+  },
+
+  async completeWish(wishId, patch, input) {
+    const data = readDB();
+    const wish = data.wishlist.find((candidate) => candidate.id === wishId);
+    if (!wish) throw new Error("找不到这条心愿");
+
+    const dish = buildDish(input);
+    if (!dish.name) throw new Error("先给这道菜起个名字吧");
+
+    data.dishes.unshift(dish);
+    wish.title = patch.title.trim() || dish.name;
+    wish.calories = patch.calories;
+    wish.ingredients = patch.ingredients
+      .map((item) => item.trim())
+      .filter(Boolean);
+    wish.cover_image = patch.cover_image;
+    wish.rednote_url = patch.rednote_url;
+    wish.status = "ready";
+    wish.dish_id = dish.id;
+    wish.approved_at = new Date().toISOString();
+    writeDB(data);
+    return dish.id;
   },
 
   async deleteWish(wishId) {
