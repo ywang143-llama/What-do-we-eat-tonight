@@ -1,10 +1,11 @@
 "use client";
 
-import { Check, Flame, Loader2, Plus } from "lucide-react";
+import { Check, ExternalLink, Flame, Loader2, Plus } from "lucide-react";
 import { useState } from "react";
 
 import { DishImage } from "@/components/ui/DishImage";
 import { categoryLabel } from "@/lib/categories";
+import { isRedNoteUrl } from "@/lib/share-import";
 import type { Dish } from "@/lib/types";
 import { cn, formatCalories } from "@/lib/utils";
 
@@ -50,6 +51,18 @@ export function DishCard({ dish, added, onAdd, index = 0 }: DishCardProps) {
           <Flame className="size-3 text-amber" />
           {formatCalories(dish.calories)}
         </p>
+
+        {dish.recipe_link ? (
+          <a
+            href={dish.recipe_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-terracotta"
+          >
+            <ExternalLink className="size-3" />
+            {isRedNoteUrl(dish.recipe_link) ? "看原笔记" : "看菜谱"}
+          </a>
+        ) : null}
 
         <div className="mt-auto pt-2.5">
           <button

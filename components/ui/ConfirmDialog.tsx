@@ -75,6 +75,7 @@ export function ConfirmDialog({
         ) : null}
         <div className="mt-5 flex gap-2.5">
           <Button
+            type="button"
             variant="secondary"
             className="flex-1"
             onClick={onCancel}
@@ -83,6 +84,7 @@ export function ConfirmDialog({
             {cancelLabel}
           </Button>
           <Button
+            type="button"
             variant={danger ? "danger" : "primary"}
             className="flex-1"
             onClick={onConfirm}

@@ -254,6 +254,26 @@ export const localApi: KitchenApi = {
     writeDB(data);
   },
 
+  async deleteDish(id) {
+    const data = readDB();
+    const dish = data.dishes.find((candidate) => candidate.id === id);
+    if (!dish) throw new Error("找不到这道菜");
+
+    const usedInHistory = data.orders.some((order) =>
+      order.items.some((item) => item.dish_id === id),
+    );
+    if (usedInHistory) {
+      throw new Error("这道菜上过餐桌了，先下架吧，历史要留着");
+    }
+
+    data.dishes = data.dishes.filter((candidate) => candidate.id !== id);
+    data.ratings = data.ratings.filter((rating) => rating.dish_id !== id);
+    data.wishlist = data.wishlist.map((wish) =>
+      wish.dish_id === id ? { ...wish, dish_id: null } : wish,
+    );
+    writeDB(data);
+  },
+
   async addWish(title, note) {
     const data = readDB();
     const trimmed = title.trim();

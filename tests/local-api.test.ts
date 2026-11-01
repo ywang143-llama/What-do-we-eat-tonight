@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
 import { localApi } from "@/lib/api/local.ts";
-import type { DishInput, KitchenSnapshot, Wish } from "@/lib/types.ts";
+import type { Dish, DishInput, KitchenSnapshot, Wish } from "@/lib/types.ts";
 
 const STORAGE_KEY = "tonights-kitchen:v1";
 
@@ -52,6 +52,22 @@ function writeSnapshot(patch: Partial<KitchenSnapshot>): void {
 
 function readSnapshot(): KitchenSnapshot {
   return JSON.parse(storage.getItem(STORAGE_KEY) ?? "null") as KitchenSnapshot;
+}
+
+function makeDish(patch: Partial<Dish> = {}): Dish {
+  return {
+    id: "dish-test-1",
+    name: "番茄牛腩",
+    category: "meat",
+    calories: 480,
+    emoji: "🥩",
+    image_url: null,
+    recipe_steps: [],
+    recipe_link: null,
+    is_active: true,
+    created_at: "2026-01-01T00:00:00.000Z",
+    ...patch,
+  };
 }
 
 function makeWish(patch: Partial<Wish> = {}): Wish {
@@ -335,6 +351,70 @@ describe("localApi.completeWish", () => {
     );
 
     assert.equal(readSnapshot().dishes.length, 0);
+  });
+});
+
+describe("localApi.deleteDish", () => {
+  it("removes an unused dish, its ratings and wish links", async () => {
+    writeSnapshot({
+      dishes: [makeDish()],
+      ratings: [
+        {
+          id: "rating-1",
+          order_id: "order-1",
+          dish_id: "dish-test-1",
+          rating: 5,
+          comment: null,
+          created_at: "2026-01-02T00:00:00.000Z",
+        },
+      ],
+      wishlist: [makeWish({ status: "ready", dish_id: "dish-test-1" })],
+    });
+
+    await localApi.deleteDish("dish-test-1");
+
+    const snapshot = readSnapshot();
+    assert.equal(snapshot.dishes.length, 0);
+    assert.equal(snapshot.ratings.length, 0);
+    assert.equal(snapshot.wishlist[0].dish_id, null);
+  });
+
+  it("refuses to delete a dish that already appeared in a dinner", async () => {
+    writeSnapshot({
+      dishes: [makeDish()],
+      orders: [
+        {
+          id: "order-1",
+          order_date: "2026-01-02",
+          status: "completed",
+          note: null,
+          created_at: "2026-01-02T00:00:00.000Z",
+          submitted_at: null,
+          completed_at: "2026-01-02T12:00:00.000Z",
+          items: [
+            {
+              id: "item-1",
+              order_id: "order-1",
+              dish_id: "dish-test-1",
+              status: "served",
+              created_at: "2026-01-02T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    });
+
+    await assert.rejects(
+      () => localApi.deleteDish("dish-test-1"),
+      /先下架/,
+    );
+    assert.equal(readSnapshot().dishes.length, 1);
+  });
+
+  it("fails for an unknown dish", async () => {
+    writeSnapshot({});
+
+    await assert.rejects(() => localApi.deleteDish("nope"), /找不到这道菜/);
   });
 });
 
