@@ -254,6 +254,16 @@ The chef's **整理菜谱** sheet has an **自动填写食材和热量** button.
 
 The key is **server-side only** — it has no `NEXT_PUBLIC_` prefix, so it is never included in the browser bundle. Without a key the route answers `503` and the modal simply asks you to fill the form by hand; the app never breaks. Requests are throttled to 8 per minute per IP.
 
+**Model choice matters.** Vision (screenshot) input needs an image-capable model:
+
+| Model | Text notes | Screenshots |
+| --- | --- | --- |
+| `openai/gpt-4o-mini` (default) | ✅ | ✅ |
+| `google/gemini-2.5-flash` | ✅ | ✅ |
+| `deepseek/deepseek-chat` | ✅ | ❌ (text-only) |
+
+If you keep DeepSeek configured and attach a screenshot, OpenRouter answers *“No endpoints found that support image input”*. The sheet now shows **模型 deepseek/deepseek-chat 看不了图片：换一个支持图片的模型，或者把笔记文字贴进来** — paste the note text, or switch `OPENROUTER_MODEL` to a vision model. When text **and** a screenshot are supplied, the route retries without the image and reports “这个模型看不了图片，已按你贴的文字整理” instead of failing. DeepSeek reasoning models also work: the parser reads `reasoning_content` when `content` is empty.
+
 ---
 
 ## iOS Shortcut & Back Tap Integration

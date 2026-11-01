@@ -258,7 +258,6 @@ test("the full dish form keeps the saved link and can AI-fill", async ({
 
 test("the same note is not queued twice", async ({ page }) => {
   const href = shareHref({ title: "小炒黄牛肉", url: "https://xhslink.com/a/e2e-dupe" });
-
   await page.goto(href);
   await expect(
     page.getByRole("heading", { name: "已经收进心愿收件箱" }),
@@ -271,4 +270,41 @@ test("the same note is not queued twice", async ({ page }) => {
 
   await page.goto("/chef/wishlist");
   await expect(page.getByText("小炒黄牛肉", { exact: true })).toHaveCount(1);
+});
+
+test("AI failures show up inside the sheet, not behind it", async ({ page }) => {
+  const shortcutUrl = "https://xhslink.com/a/e2e-ai-error";
+
+  await page.route("**/api/link-meta**", async (route) => {
+    await route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "链接没打开" }),
+    });
+  });
+  await page.route("**/api/ai/recipe", async (route) => {
+    await route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error:
+          "模型 deepseek/deepseek-chat 看不了图片：换一个支持图片的模型，或者把笔记文字贴进来",
+      }),
+    });
+  });
+
+  await seedShortcutWish(page, shortcutUrl);
+  await page.goto("/chef/wishlist");
+
+  await page.getByRole("button", { name: "整理菜谱" }).click();
+  const dialog = page.getByRole("dialog", { name: "整理这道菜" });
+  await expect(dialog).toBeVisible();
+
+  await dialog.getByRole("button", { name: "自动填写食材和热量" }).click();
+
+  // The message must be readable while the sheet is open (role=alert inside it).
+  const alert = dialog.getByRole("alert");
+  await expect(alert).toBeVisible();
+  await expect(alert).toContainText("看不了图片");
+  await expect(alert).toContainText("deepseek/deepseek-chat");
 });

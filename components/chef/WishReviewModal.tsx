@@ -51,6 +51,9 @@ export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
   const [note, setNote] = useState(wish.note ?? "");
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiMessage, setAiMessage] = useState<
+    { tone: "error" | "success"; text: string } | null
+  >(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [linkState, setLinkState] = useState<
@@ -162,11 +165,12 @@ export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
     if (aiBusy) return;
     const text = [title, note].filter(Boolean).join("\n").trim();
     if (!text && !screenshot && !wish.rednote_url) {
-      notify("先写一点笔记内容，或者加一张截图", "error");
+      setAiMessage({ tone: "error", text: "先写一点笔记内容，或者加一张截图" });
       return;
     }
 
     setAiBusy(true);
+    setAiMessage({ tone: "success", text: "正在让 AI 整理，稍等一下…" });
     try {
       const response = await fetch("/api/ai/recipe", {
         method: "POST",
@@ -186,12 +190,15 @@ export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
               ingredients: string[];
               steps: string[];
             };
+            warning?: string;
             error?: string;
           }
         | null;
 
       if (!response.ok || !payload?.draft) {
-        notify(payload?.error ?? "AI 暂时没回应，先手动写吧", "error");
+        const message = payload?.error ?? "AI 暂时没回应，先手动写吧";
+        setAiMessage({ tone: "error", text: message });
+        notify(message, "error");
         return;
       }
 
@@ -201,9 +208,15 @@ export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
       if (draft.calories > 0) setCalories(String(draft.calories));
       if (draft.ingredients.length) setIngredients(draft.ingredients.join("\n"));
       if (draft.steps.length) setSteps(draft.steps.join("\n"));
-      notify("AI 已经填好啦，检查一下再保存", "success");
+      const done = payload.warning
+        ? `${payload.warning}，检查一下再保存`
+        : "AI 已经填好啦，检查一下再保存";
+      setAiMessage({ tone: "success", text: done });
+      notify(done, payload.warning ? "info" : "success");
     } catch (aiError) {
-      notify(errorMessage(aiError), "error");
+      const message = errorMessage(aiError);
+      setAiMessage({ tone: "error", text: message });
+      notify(message, "error");
     } finally {
       setAiBusy(false);
     }
@@ -390,6 +403,20 @@ export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
               <Sparkles className="size-3.5" />
               自动填写食材和热量
             </Button>
+
+            {aiMessage ? (
+              <p
+                role={aiMessage.tone === "error" ? "alert" : "status"}
+                className={cn(
+                  "mt-2 rounded-xl px-2.5 py-2 text-[10.5px] leading-relaxed",
+                  aiMessage.tone === "error"
+                    ? "bg-[#FBE9E3] text-[#9A4530]"
+                    : "bg-[#EFF6E6] text-[#4F6B3E]",
+                )}
+              >
+                {aiMessage.text}
+              </p>
+            ) : null}
           </section>
 
           <div className="mt-4">

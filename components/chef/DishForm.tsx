@@ -215,8 +215,9 @@ function DishFormInner({
         | null;
 
       if (!response.ok || !payload?.draft) {
-        setAiHint(null);
-        notify(payload?.error ?? "AI 暂时没回应，先手动写吧", "error");
+        const message = payload?.error ?? "AI 暂时没回应，先手动写吧";
+        setAiHint(message);
+        notify(message, "error");
         return;
       }
 
@@ -231,8 +232,9 @@ function DishFormInner({
       setAiHint("AI 已经填好啦，检查一下再保存");
       notify("AI 已经整理好这道菜", "success");
     } catch (aiError) {
-      setAiHint(null);
-      notify(errorMessage(aiError), "error");
+      const message = errorMessage(aiError);
+      setAiHint(message);
+      notify(message, "error");
     } finally {
       setAiBusy(false);
     }
