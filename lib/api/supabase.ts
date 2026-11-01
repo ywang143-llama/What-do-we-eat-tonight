@@ -298,6 +298,18 @@ export const supabaseApi: KitchenApi = {
     if (error) fail(error, "菜品状态更新失败");
   },
 
+  async deleteDish(id) {
+    const { error } = await client().from("dishes").delete().eq("id", id);
+    if (error) {
+      // order_items.dish_id uses `on delete restrict`, so dishes that already
+      // appeared in a dinner cannot be removed without losing history.
+      if (/foreign key|violates|23503/i.test(error.message)) {
+        throw new Error("这道菜上过餐桌了，先下架吧，历史要留着");
+      }
+      fail(error, "删除菜品失败");
+    }
+  },
+
   async addWish(title, note) {
     const trimmed = title.trim();
     if (!trimmed) throw new Error("写下想吃的那道菜吧");

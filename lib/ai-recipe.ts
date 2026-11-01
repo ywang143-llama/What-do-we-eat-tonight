@@ -34,6 +34,7 @@ const CATEGORY_ALIASES: Record<string, Category> = {
   meat: "meat",
   肉类: "meat",
   荤菜: "meat",
+  蛋类: "meat",
   肉禽: "meat",
   肉类禽类: "meat",
   硬菜: "meat",
@@ -170,7 +171,7 @@ export const RECIPE_SYSTEM_PROMPT = [
   "用户会给你一段从小红书分享来的菜谱文字或截图，请整理成一道家常菜。",
   "只输出一个 JSON 对象，不要 Markdown、不要解释，格式如下：",
   '{"title":"菜名（中文，不超过20字）","category":"staple|vegetable|meat|soup|snack","calories":整数千卡,"ingredients":["食材 用量"],"steps":["一步一句，具体可操作"]}',
-  "category 只能取：staple 主食、vegetable 蔬菜、meat 肉类/禽类、soup 汤品/饮料、snack 小吃/甜品。",
+  "category 只能取：staple 主食、vegetable 蔬菜、meat 肉类/蛋类、soup 汤品/饮料、snack 小吃/甜品。",
   "calories 按两人份估算整道菜的热量，取整十位，无法判断时给 0。",
   "信息不足时按常见家常做法补全，不要编造夸张的昂贵食材。",
 ].join("\n");

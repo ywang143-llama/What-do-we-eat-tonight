@@ -308,3 +308,66 @@ test("AI failures show up inside the sheet, not behind it", async ({ page }) => 
   await expect(alert).toContainText("看不了图片");
   await expect(alert).toContainText("deepseek/deepseek-chat");
 });
+
+test("auto-fetch a photo, then delete the dish", async ({ page }) => {
+  await page.route("**/api/dish-image**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        query: "香菜牛肉",
+        images: [
+          {
+            id: "p1",
+            url: "https://images.test/regular.jpg",
+            thumb: "https://images.test/small.jpg",
+            alt: "香菜牛肉",
+            creditName: "Chef",
+            creditLink: "https://unsplash.com/@chef",
+            photoLink: null,
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto("/chef/menu/new");
+  await page.getByLabel(/^菜名/).fill("香菜牛肉");
+
+  await page.getByRole("button", { name: /自动找图/ }).click();
+  const pick = page.getByRole("button", { name: "使用照片：香菜牛肉" });
+  await expect(pick).toBeVisible();
+  await pick.click();
+  await expect(
+    page.locator('img[src="https://images.test/regular.jpg"]'),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "保存并上架" }).click();
+  await expect(page).toHaveURL(/\/chef\/menu$/);
+  await expect(page.getByText("香菜牛肉").first()).toBeVisible();
+
+  await page.getByRole("link", { name: "编辑香菜牛肉" }).first().click();
+  await page.getByRole("button", { name: "删除", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "删除" })
+    .click();
+
+  await expect(page).toHaveURL(/\/chef\/menu$/);
+  await expect(page.getByText("香菜牛肉")).toHaveCount(0);
+});
+
+test("a dish from dinner history cannot be deleted", async ({ page }) => {
+  await page.goto("/chef/menu");
+  await page.getByRole("link", { name: "编辑番茄鸡蛋面" }).first().click();
+
+  await page.getByRole("button", { name: "删除", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "删除" })
+    .click();
+
+  // Friendly refusal, and we stay on the edit page.
+  await expect(page.getByRole("status").filter({ hasText: "先下架" })).toBeVisible();
+  await expect(page).toHaveURL(/\/chef\/menu\/.+/);
+});

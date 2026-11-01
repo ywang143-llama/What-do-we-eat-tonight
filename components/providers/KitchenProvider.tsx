@@ -76,6 +76,7 @@ interface KitchenContextValue {
     wishlistId?: string,
   ) => Promise<string | null>;
   setDishActive: (id: string, active: boolean) => Promise<boolean>;
+  deleteDish: (id: string) => Promise<boolean>;
   addWish: (title: string, note: string) => Promise<boolean>;
   addSharedWish: (input: SharedWishInput) => Promise<boolean>;
   markWishReady: (wishId: string, dishId: string) => Promise<boolean>;
@@ -316,6 +317,11 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
     [run],
   );
 
+  const deleteDish = useCallback(
+    (id: string) => run(() => kitchenApi.deleteDish(id), "这道菜已经删掉了"),
+    [run],
+  );
+
   const addWish = useCallback(
     (title: string, note: string) =>
       run(() => kitchenApi.addWish(title, note), "心愿已经记下啦"),
@@ -434,6 +440,7 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
       completeOrder,
       saveDish,
       setDishActive,
+      deleteDish,
       addWish,
       addSharedWish,
       markWishReady,
@@ -468,6 +475,7 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
       completeOrder,
       saveDish,
       setDishActive,
+      deleteDish,
       addWish,
       addSharedWish,
       markWishReady,

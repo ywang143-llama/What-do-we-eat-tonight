@@ -8,6 +8,28 @@ the project uses [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Added
 
+- **✨ 自动找图 (Unsplash)** — `GET /api/dish-image?q=…` searches Unsplash
+  (`UNSPLASH_ACCESS_KEY`, server-side only) and the dish form shows six
+  candidates to use as the cover. Helpers live in `lib/image-search.ts`, with
+  route + mapping tests.
+- **Delete a dish** — `KitchenApi.deleteDish` (both adapters) plus a
+  删除这道菜 danger zone in the published-dish editor. Dishes that already
+  appeared in a dinner are refused with “先下架吧，历史要留着” so order history
+  and ratings survive.
+- **Source link buttons** — any dish with a `recipe_link` now shows
+  看原笔记 / 看菜谱 in the dish form and on the diner's menu cards (the review
+  sheet already had it), so both people can open the original RedNote post.
+- **AI assist in the full dish form** now accepts pasted text **and** a
+  screenshot (previously link/wish only), so it works when editing a published
+  dish, not just during wish approval.
+
+### Changed
+
+- Category label `肉类/禽类` → **`肉类/蛋类`** (AI aliases and prompts updated).
+- The chef menu toggle moved to the far right of each row, and the dish form
+  toggle now shows an explicit 在售 / 已下架 label.
+- `ConfirmDialog` action buttons are `type="button"`, so they can be rendered
+  inside a form without submitting it.
 - **iOS Shortcut & Back Tap documentation** — `README.md` explains how to read a copied
   RedNote link from the iPhone clipboard and `POST` it to `…/rest/v1/wishlist` as
   `{ "rednote_url": …, "status": "pending_review" }` (includes Back Tap / Action Button setup).

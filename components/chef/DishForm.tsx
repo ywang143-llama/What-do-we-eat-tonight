@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Camera,
   ChevronLeft,
+  ExternalLink,
   ImagePlus,
   Link2,
   Loader2,
@@ -12,20 +13,23 @@ import {
   Save,
   Sparkles,
   Trash2,
+  Wand2,
   X,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { useKitchen } from "@/components/providers/KitchenProvider";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageIntro } from "@/components/ui/PageIntro";
 import { PageLoading } from "@/components/ui/PageLoading";
 import { Toggle } from "@/components/ui/Toggle";
 import { CATEGORIES, CATEGORY_EMOJI, CATEGORY_MAP } from "@/lib/categories";
+import type { DishImageCandidate } from "@/lib/image-search";
 import type { Category, Dish, DishInput, Wish } from "@/lib/types";
 import { useDocumentTitle } from "@/lib/use-document-title";
-import { cn, errorMessage } from "@/lib/utils";
+import { blobToDataURL, cn, compressImage, errorMessage } from "@/lib/utils";
 import { wishTitle } from "@/lib/wish";
 
 const EMOJI_CHOICES = [
@@ -99,7 +103,14 @@ function DishFormInner({
   wishlistId?: string;
 }) {
   const router = useRouter();
-  const { saveDish, completeWish, uploadImage, notify, mode } = useKitchen();
+  const {
+    saveDish,
+    completeWish,
+    deleteDish,
+    uploadImage,
+    notify,
+    mode,
+  } = useKitchen();
   const editing = Boolean(dish);
 
   useDocumentTitle(editing ? "编辑菜谱" : "添加新菜");
@@ -129,7 +140,16 @@ function DishFormInner({
   const [saving, setSaving] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiHint, setAiHint] = useState<string | null>(null);
+  const [aiNote, setAiNote] = useState(wish?.note ?? "");
+  const [aiShot, setAiShot] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageResults, setImageResults] = useState<DishImageCandidate[]>([]);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imagePage, setImagePage] = useState(1);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const aiShotInputRef = useRef<HTMLInputElement>(null);
 
   const emojiChoices = useMemo(
     () => Array.from(new Set([emoji, ...EMOJI_CHOICES])),
@@ -155,6 +175,76 @@ function DishFormInner({
     }
   };
 
+  const handleAiScreenshot = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      const blob = await compressImage(file, 1000, 0.7);
+      setAiShot(await blobToDataURL(blob));
+    } catch (imageError) {
+      notify(errorMessage(imageError), "error");
+    }
+  };
+
+  /** Search Unsplash for a dish photo and let the chef pick one. */
+  const handleFindImage = async () => {
+    if (imageBusy) return;
+    const keyword = name.trim();
+    if (!keyword) {
+      setImageError("先填上菜名，我才知道要找什么图");
+      return;
+    }
+
+    setImageBusy(true);
+    setImageError(null);
+    const nextPage = imageResults.length ? imagePage + 1 : 1;
+    try {
+      const response = await fetch(
+        `/api/dish-image?q=${encodeURIComponent(keyword)}&page=${nextPage}`,
+      );
+      const payload = (await response.json().catch(() => null)) as
+        | { images?: DishImageCandidate[]; error?: string }
+        | null;
+
+      if (!response.ok || !payload?.images?.length) {
+        setImageResults([]);
+        setImageError(payload?.error ?? "没找到合适的照片，先手动拍一张吧");
+        return;
+      }
+
+      setImagePage(nextPage);
+      setImageResults(payload.images);
+    } catch (searchError) {
+      setImageError(errorMessage(searchError));
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const pickImageFromSearch = (candidate: DishImageCandidate) => {
+    setImageUrl(candidate.url);
+    setImageResults([]);
+    setImageError(null);
+    notify("封面图换好啦", "success");
+  };
+
+  const handleDelete = async () => {
+    if (!dish || deleting) return;
+    setDeleting(true);
+    const ok = await deleteDish(dish.id);
+    setDeleting(false);
+    setConfirmingDelete(false);
+    if (ok) router.push("/chef/menu");
+  };
+
+  const sourceLink = /^https?:\/\//i.test(recipeLink.trim())
+    ? recipeLink.trim()
+    : null;
+
   const updateStep = (index: number, value: string) => {
     setSteps((current) =>
       current.map((step, stepIndex) => (stepIndex === index ? value : step)),
@@ -177,28 +267,37 @@ function DishFormInner({
   };
 
   /**
-   * Optional AI assist in the full dish form. Uses whatever the wish carried
-   * (title + note) and/or the RedNote link, so link-only imports work too.
+   * Optional AI assist in the full dish form. Uses whatever the chef typed,
+   * the wish (title + note), a screenshot and/or the RedNote link — so it also
+   * works when editing a dish that was published long ago.
    */
   const handleAiFill = async () => {
     if (aiBusy) return;
 
-    const text = [wish?.title, wish?.note].filter(Boolean).join("\n").trim();
-    const url = recipeLink.trim();
-    if (!text && !url) {
-      notify("先填上菜谱链接，或者从心愿收件箱进来", "error");
+    const text = Array.from(
+      new Set(
+        [aiNote.trim(), name.trim(), wish?.title, wish?.note]
+          .filter((part): part is string => Boolean(part && part.trim()))
+          .map((part) => part.trim()),
+      ),
+    ).join("\n");
+    const url = sourceLink;
+
+    if (!text && !aiShot && !url) {
+      setAiHint("先写点做法文字、加一张截图，或者填上菜谱链接");
       return;
     }
 
     setAiBusy(true);
-    setAiHint("正在读这条笔记…");
+    setAiHint("正在整理这道菜…");
     try {
       const response = await fetch("/api/ai/recipe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: text || undefined,
-          url: url || undefined,
+          image: aiShot ?? undefined,
+          url: url ?? undefined,
         }),
       });
       const payload = (await response.json().catch(() => null)) as
@@ -210,6 +309,7 @@ function DishFormInner({
               ingredients: string[];
               steps: string[];
             };
+            warning?: string;
             error?: string;
           }
         | null;
@@ -229,8 +329,11 @@ function DishFormInner({
       }
       if (draft.calories > 0) setCalories(String(draft.calories));
       if (draft.steps.length) setSteps(draft.steps);
-      setAiHint("AI 已经填好啦，检查一下再保存");
-      notify("AI 已经整理好这道菜", "success");
+      const done = payload.warning
+        ? `${payload.warning}，已按文字整理`
+        : "AI 已经填好啦，检查一下再保存";
+      setAiHint(done);
+      notify(done, payload.warning ? "info" : "success");
     } catch (aiError) {
       const message = errorMessage(aiError);
       setAiHint(message);
@@ -239,8 +342,6 @@ function DishFormInner({
       setAiBusy(false);
     }
   };
-
-  const showAiCard = Boolean(wish) || /^https?:\/\//i.test(recipeLink.trim());
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -336,37 +437,78 @@ function DishFormInner({
         </div>
       ) : null}
 
-      {showAiCard ? (
-        <section className="mt-4 rounded-3xl border border-[#EAD8BF] bg-[#FBF1E1] p-3.5">
-          <div className="flex items-center gap-1.5">
-            <Sparkles className="size-3.5 text-amber" />
-            <h2 className="text-[12px] font-bold text-[#7E5B31]">
-              AI 帮忙整理菜谱
-            </h2>
-          </div>
-          <p className="mt-1 text-[10.5px] leading-relaxed text-[#8A6A42]">
-            {recipeLink
-              ? "会读这条笔记的链接和文字，试着填好菜名、分类、热量和做法步骤。"
-              : "会读心愿里的文字，试着填好菜名、分类、热量和做法步骤。"}
-          </p>
-          <Button
+      <section className="mt-4 rounded-3xl border border-[#EAD8BF] bg-[#FBF1E1] p-3.5">
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="size-3.5 text-amber" />
+          <h2 className="text-[12px] font-bold text-[#7E5B31]">
+            AI 帮忙整理菜谱
+          </h2>
+        </div>
+        <p className="mt-1 text-[10.5px] leading-relaxed text-[#8A6A42]">
+          {sourceLink
+            ? "会读菜谱链接、你写的文字和截图，试着填好菜名、分类、热量和做法步骤。"
+            : "会读你写的文字和截图，试着填好菜名、分类、热量和做法步骤。"}
+        </p>
+
+        <textarea
+          value={aiNote}
+          onChange={(event) => setAiNote(event.target.value)}
+          rows={3}
+          maxLength={800}
+          placeholder="粘贴小红书的做法文字，或补充要求…"
+          className="mt-2.5 w-full resize-none rounded-2xl border border-line bg-white/70 px-3 py-2.5 text-[12px] leading-relaxed text-ink outline-none transition placeholder:text-ink-soft/45 focus:border-terracotta/60"
+        />
+
+        <input
+          ref={aiShotInputRef}
+          type="file"
+          accept="image/*"
+          onChange={(event) => void handleAiScreenshot(event)}
+          className="hidden"
+        />
+
+        <div className="mt-2 flex items-center gap-2">
+          <button
             type="button"
-            variant="amber"
-            size="sm"
-            className="mt-2.5 w-full"
-            loading={aiBusy}
-            onClick={() => void handleAiFill()}
+            onClick={() => aiShotInputRef.current?.click()}
+            className="flex h-9 items-center gap-1.5 rounded-full border border-[#E4CFAE] bg-white/70 px-3 text-[11px] font-semibold text-[#7E5B31]"
           >
-            <Sparkles className="size-3.5" />
-            自动填写菜名和做法
-          </Button>
-          {aiHint ? (
-            <p className="mt-1.5 text-center text-[10px] text-[#8A6A42]">
-              {aiHint}
-            </p>
+            <ImagePlus className="size-3.5" />
+            {aiShot ? "换一张截图" : "加一张截图"}
+          </button>
+          {aiShot ? (
+            <span className="flex items-center gap-1 text-[10px] font-semibold text-sage">
+              已选好截图
+              <button
+                type="button"
+                onClick={() => setAiShot(null)}
+                aria-label="移除截图"
+                className="grid size-6 place-items-center rounded-full text-ink-soft/70"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
           ) : null}
-        </section>
-      ) : null}
+        </div>
+
+        <Button
+          type="button"
+          variant="amber"
+          size="sm"
+          className="mt-2.5 w-full"
+          loading={aiBusy}
+          onClick={() => void handleAiFill()}
+        >
+          <Sparkles className="size-3.5" />
+          自动填写菜名和做法
+        </Button>
+
+        {aiHint ? (
+          <p className="mt-1.5 text-center text-[10px] leading-relaxed text-[#8A6A42]">
+            {aiHint}
+          </p>
+        ) : null}
+      </section>
 
       <section className="mt-5 rounded-4xl border border-line bg-paper p-4 shadow-card">
         <h2 className="text-[12.5px] font-bold text-ink">基本信息</h2>
@@ -441,6 +583,61 @@ function DishFormInner({
               ? "图片会压缩后上传到 Supabase Storage。"
               : "本机演示模式：图片会压缩后保存在这台设备上。"}
           </p>
+
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleFindImage()}
+              disabled={imageBusy || !name.trim()}
+              className="flex h-9 items-center gap-1.5 rounded-full border border-[#E4CFAE] bg-[#FBF1E1] px-3 text-[11px] font-semibold text-[#7E5B31] transition active:scale-95 disabled:opacity-50"
+            >
+              {imageBusy ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="size-3.5" />
+              )}
+              {imageResults.length ? "换一批照片" : "✨ 自动找图"}
+            </button>
+            <span className="text-[9.5px] text-ink-soft/65">
+              用菜名搜一张 Unsplash 的照片
+            </span>
+          </div>
+
+          {imageError ? (
+            <p className="mt-1.5 px-0.5 text-[10px] leading-relaxed text-[#9A4530]">
+              {imageError}
+            </p>
+          ) : null}
+
+          {imageResults.length ? (
+            <div className="mt-2 rounded-2xl border border-line bg-cream/40 p-2">
+              <p className="px-1 pb-1.5 text-[9.5px] text-ink-soft">
+                点一张用做封面图
+              </p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {imageResults.map((candidate) => (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    onClick={() => pickImageFromSearch(candidate)}
+                    aria-label={`使用照片：${candidate.alt ?? name}`}
+                    className="relative aspect-[4/3] overflow-hidden rounded-xl border border-line/60 transition active:scale-95"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={candidate.thumb}
+                      alt={candidate.alt ?? `${name} 照片`}
+                      loading="lazy"
+                      className="size-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+              <p className="px-1 pt-1.5 text-[8.5px] text-ink-soft/60">
+                照片来自 Unsplash
+              </p>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-4">
@@ -610,6 +807,17 @@ function DishFormInner({
             placeholder="https://www.xiachufang.com/…"
             className="h-11 w-full rounded-2xl border border-line bg-cream/50 px-3.5 text-[12.5px] text-ink outline-none transition placeholder:text-ink-soft/45 focus:border-terracotta/60 focus:ring-2 focus:ring-terracotta/10"
           />
+          {sourceLink ? (
+            <a
+              href={sourceLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold text-terracotta"
+            >
+              <ExternalLink className="size-3.5" />
+              打开原笔记 / 菜谱
+            </a>
+          ) : null}
         </div>
       </section>
 
@@ -620,12 +828,43 @@ function DishFormInner({
             关闭后，这道菜只会留在菜谱本里，点餐员看不到。
           </p>
         </div>
-        <Toggle
-          checked={isActive}
-          onChange={setIsActive}
-          label="上架到点餐菜单"
-        />
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className={cn(
+              "text-[10.5px] font-semibold",
+              isActive ? "text-sage" : "text-ink-soft",
+            )}
+          >
+            {isActive ? "在售" : "已下架"}
+          </span>
+          <Toggle
+            checked={isActive}
+            onChange={setIsActive}
+            label="上架到点餐菜单"
+          />
+        </div>
       </section>
+
+      {dish ? (
+        <section className="mt-3 flex items-center gap-3 rounded-3xl border border-[#F0D8D0] bg-[#FDF3F0] px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] font-bold text-[#8F4231]">删除这道菜</p>
+            <p className="mt-0.5 text-[10px] leading-relaxed text-[#8F4231]/75">
+              删除后菜谱本里就没有它了；如果它已经上过餐桌，请先下架，历史会保留。
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="danger"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setConfirmingDelete(true)}
+          >
+            <Trash2 className="size-3.5" />
+            删除
+          </Button>
+        </section>
+      ) : null}
 
       <div className="pointer-events-none fixed inset-x-0 above-nav z-30 bg-gradient-to-t from-cream via-cream/95 to-transparent px-4 pt-6">
         <div className="pointer-events-auto mx-auto flex w-full max-w-[448px] gap-2">
@@ -652,6 +891,21 @@ function DishFormInner({
           </Button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="删除这道菜？"
+        description={
+          dish
+            ? `「${dish.name}」会从菜谱本里消失，点餐员也将看不到它。`
+            : ""
+        }
+        confirmLabel="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </form>
   );
 }

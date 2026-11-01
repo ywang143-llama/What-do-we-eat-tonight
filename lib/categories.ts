@@ -35,7 +35,7 @@ export const CATEGORIES: CategoryMeta[] = [
   },
   {
     id: "meat",
-    label: "肉类/禽类",
+    label: "肉类/蛋类",
     shortLabel: "肉类",
     emoji: "🍗",
     description: "今晚的硬菜担当",

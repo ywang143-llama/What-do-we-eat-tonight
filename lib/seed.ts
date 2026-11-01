@@ -161,7 +161,7 @@ const DISHES: DishSeed[] = [
     ],
   },
 
-  // 肉类 / 禽类
+  // 肉类 / 蛋类
   {
     id: "dish-cola-wings",
     name: "可乐鸡翅",

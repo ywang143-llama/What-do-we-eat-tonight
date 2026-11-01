@@ -18,6 +18,8 @@ export interface KitchenApi {
   completeOrder(orderId: string): Promise<void>;
   saveDish(input: DishInput, id?: string): Promise<string>;
   setDishActive(id: string, active: boolean): Promise<void>;
+  /** Remove a dish that never appeared in a dinner; throws for history. */
+  deleteDish(id: string): Promise<void>;
   addWish(title: string, note: string): Promise<void>;
   /** Store a RedNote share as a `pending_review` wish from the inbox. */
   addSharedWish(input: SharedWishInput): Promise<void>;

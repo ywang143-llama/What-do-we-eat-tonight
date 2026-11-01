@@ -157,6 +157,7 @@ Supabase sync works over the internet, so after deploying to Vercel you can use 
    | `NEXT_PUBLIC_SUPABASE_URL` | your Supabase project URL |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | your Supabase anon public key |
    | `OPENROUTER_API_KEY` | *(optional)* server-side key for the AI auto-fill button |
+   | `UNSPLASH_ACCESS_KEY` | *(optional)* server-side key for the ✨ 自动找图 button |
 
    Add them to **Production**, **Preview**, and **Development**.
 5. Click **Deploy**.
@@ -264,6 +265,23 @@ The key is **server-side only** — it has no `NEXT_PUBLIC_` prefix, so it is ne
 
 If you keep DeepSeek configured and attach a screenshot, OpenRouter answers *“No endpoints found that support image input”*. The sheet now shows **模型 deepseek/deepseek-chat 看不了图片：换一个支持图片的模型，或者把笔记文字贴进来** — paste the note text, or switch `OPENROUTER_MODEL` to a vision model. When text **and** a screenshot are supplied, the route retries without the image and reports “这个模型看不了图片，已按你贴的文字整理” instead of failing. DeepSeek reasoning models also work: the parser reads `reasoning_content` when `content` is empty.
 
+The same AI panel is available in the full dish form (including when editing a published dish): it accepts pasted text, a screenshot and/or the recipe link, and fills 菜名 / 分类 / 卡路里 / 做法步骤.
+
+### Auto-fetch a dish photo (Unsplash)
+
+The dish form's image card has a **✨ 自动找图** button: it searches Unsplash with the dish name, shows six candidates and applies the one you tap.
+
+1. Create a free app at <https://unsplash.com/developers>.
+2. Copy the **Access Key** into `.env.local` / Vercel:
+
+   ```env
+   UNSPLASH_ACCESS_KEY=...
+   ```
+
+3. Restart the dev server (or redeploy).
+
+Without a key the button explains that image search is not configured and manual upload keeps working. Photos come from Unsplash — keep their attribution in mind if you publish the app publicly.
+
 ---
 
 ## iOS Shortcut & Back Tap Integration
@@ -342,6 +360,8 @@ A wish is either `manual` (written on the diner's 心愿 page) or `share` (sent 
 - **Manual wishes** appear under 待实现. The chef taps **做成这道菜**; the dish form opens prefilled and saving creates the dish.
 - **Shared wishes** appear in 心愿收件箱 with **查看原笔记** and **整理菜谱**. Rows that only carry a `rednote_url` (iOS Shortcut) show the fallback title 小红书收藏的菜 until reviewed. The review sheet reads the link preview (`GET /api/link-meta`), fills title/note/cover, can auto-fill ingredients, category, calories and steps with AI, and saving creates the dish, stores the reviewed ingredients/calories/cover on the wish and marks it `ready`.
 - **用完整表单做成这道菜** opens the regular dish form for the same wish. The saved `rednote_url` is carried into 外部菜谱链接 automatically and the form has its own AI panel, so the link is never lost when you publish from there.
+- **Source links stay visible**: any dish with a `recipe_link` shows 看原笔记 / 看菜谱 in the dish form, the review sheet and the diner's menu cards, so both people can open the original post.
+- **Deleting dishes**: the published-dish editor has 删除这道菜. Dishes that already appeared in a dinner are protected — the app asks you to 下架 instead, so past orders and ratings keep working.
 
 Either way the wish becomes `ready` with a link to the new dish, and the diner sees 大厨已经学会啦.
 
