@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  completionCandidates,
   normalizeCategory,
   normalizeRecipeDraft,
+  parseCompletionDraft,
   parseRecipeDraft,
 } from "../lib/ai-recipe.ts";
 
@@ -98,5 +100,48 @@ describe("parseRecipeDraft", () => {
     assert.equal(parseRecipeDraft("抱歉，我没看懂这张图。"), null);
     assert.equal(parseRecipeDraft("{不是 json}"), null);
     assert.equal(parseRecipeDraft(""), null);
+  });
+});
+
+describe("completionCandidates / parseCompletionDraft", () => {
+  it("collects content and reasoning fields in order", () => {
+    const candidates = completionCandidates({
+      choices: [
+        {
+          message: {
+            content: "  ",
+            reasoning: "thinking…",
+            reasoning_content: '{"title":"番茄牛腩"}',
+          },
+        },
+      ],
+    });
+
+    assert.deepEqual(candidates, ["thinking…", '{"title":"番茄牛腩"}']);
+  });
+
+  it("ignores non-string and missing messages", () => {
+    assert.deepEqual(completionCandidates({}), []);
+    assert.deepEqual(
+      completionCandidates({ choices: [{ message: { content: 42 } }] }),
+      [],
+    );
+  });
+
+  it("falls back to a parseable reasoning field", () => {
+    const draft = parseCompletionDraft({
+      choices: [
+        {
+          message: {
+            content: "",
+            reasoning_content:
+              '{"title":"葱油拌面","category":"主食","calories":480}',
+          },
+        },
+      ],
+    });
+
+    assert.equal(draft?.title, "葱油拌面");
+    assert.equal(draft?.category, "staple");
   });
 });

@@ -134,6 +134,36 @@ export function parseRecipeDraft(raw: string): RecipeDraft | null {
   }
 }
 
+/**
+ * Pull the candidate JSON strings out of an OpenRouter completion.
+ *
+ * Reasoning models (e.g. DeepSeek) may leave `content` empty and put the text
+ * in `reasoning` / `reasoning_content`; some wrappers do the opposite. Trying
+ * every non-empty field makes the parser work across providers.
+ */
+export function completionCandidates(payload: unknown): string[] {
+  const choices = (payload as {
+    choices?: Array<{ message?: Record<string, unknown> }>;
+  })?.choices;
+  const message = choices?.[0]?.message;
+  if (!message) return [];
+
+  return ["content", "reasoning", "reasoning_content"]
+    .map((key) => message[key])
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+/** First candidate that parses into a usable draft. */
+export function parseCompletionDraft(payload: unknown): RecipeDraft | null {
+  for (const candidate of completionCandidates(payload)) {
+    const draft = parseRecipeDraft(candidate);
+    if (draft) return draft;
+  }
+  return null;
+}
+
 /** The instruction sent to OpenRouter. */
 export const RECIPE_SYSTEM_PROMPT = [
   "你是一位帮两个人打理家庭菜谱的助手。",
