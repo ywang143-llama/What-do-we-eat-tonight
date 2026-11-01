@@ -69,8 +69,22 @@ the project uses [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Fixed
 
-- Wish approvals from the share inbox now persist the reviewed ingredients,
-  calories and cover image alongside the created dish.
+- **AI looked like it did nothing** — the toast rendered *behind* the Review
+  sheet (`z-70` vs `z-80`). Toasts now sit at `z-90`, and both the sheet and the
+  dish form show the AI result/error inline (with `role="alert"`), so feedback is
+  visible even while the dialog is open.
+- **DeepSeek / vision errors were swallowed** — the route now maps upstream
+  failures to actionable Chinese copy: wrong key, no credits, rate limit,
+  unknown model, context too long, and “模型 … 看不了图片” (with the configured
+  model name) for text-only models given a screenshot. It also logs the model,
+  status and a clamped response body server-side.
+- AI requests ask for JSON mode and retry once without it when a provider
+  rejects `response_format`, read `reasoning` / `reasoning_content` when
+  `content` is empty (DeepSeek reasoners), and allow 45 s instead of 25 s so
+  slow vision models can finish. If a text-only model rejects a screenshot but
+  the chef also pasted text, the route retries without the image and returns a
+  warning instead of an error.
+- README documents which models accept screenshots and the DeepSeek caveat.
 - **Wishlist → dish flow for link-only rows** — `title` is nullable end to end
   (schema, types, both adapters, diner/chef lists and the review sheet), so rows
   inserted by the iOS Shortcut no longer render blank titles or crash the
@@ -92,3 +106,5 @@ the project uses [Conventional Commits](https://www.conventionalcommits.org/).
   link/ingredients and is marked `ready` in one step.
 - Added `data-scroll-behavior="smooth"` to `<html>` to silence the Next.js
   smooth-scroll transition warning.
+- Wish approvals from the share inbox persist the reviewed ingredients, calories
+  and cover image alongside the created dish.
