@@ -1,4 +1,6 @@
-import { expect, test } from "@playwright/test";
+import assert from "node:assert/strict";
+
+import { expect, test, type Page } from "@playwright/test";
 
 /**
  * End-to-end smoke test for the Web Share Target flow:
@@ -18,6 +20,40 @@ function shareHref(params: { title?: string; text?: string; url?: string }) {
   if (params.text) query.set("text", params.text);
   if (params.url) query.set("url", params.url);
   return `/import?${query.toString()}`;
+}
+
+/**
+ * Seed a wish exactly like the documented iOS Shortcut payload: only
+ * `rednote_url` + `status`, no title, `source` left at the column default.
+ */
+async function seedShortcutWish(page: Page, rednoteUrl: string) {
+  await page.addInitScript((url) => {
+    if (window.localStorage.getItem("tonights-kitchen:v1")) return;
+    window.localStorage.setItem(
+      "tonights-kitchen:v1",
+      JSON.stringify({
+        dishes: [],
+        orders: [],
+        ratings: [],
+        wishlist: [
+          {
+            id: "wish-shortcut",
+            title: null,
+            note: null,
+            status: "pending_review",
+            source: "manual",
+            dish_id: null,
+            calories: null,
+            ingredients: [],
+            cover_image: null,
+            rednote_url: url,
+            created_at: new Date().toISOString(),
+            approved_at: null,
+          },
+        ],
+      }),
+    );
+  }, rednoteUrl);
 }
 
 test("a shared note lands in the chef's wish inbox and can be published", async ({
@@ -128,35 +164,8 @@ test("a shortcut row without a title autofills from the link", async ({
     });
   });
 
-  // Exactly what the documented iOS Shortcut posts: only rednote_url + status,
-  // no title, and the column default leaves source as "manual".
-  await page.addInitScript((rednoteUrl) => {
-    if (window.localStorage.getItem("tonights-kitchen:v1")) return;
-    window.localStorage.setItem(
-      "tonights-kitchen:v1",
-      JSON.stringify({
-        dishes: [],
-        orders: [],
-        ratings: [],
-        wishlist: [
-          {
-            id: "wish-shortcut",
-            title: null,
-            note: null,
-            status: "pending_review",
-            source: "manual",
-            dish_id: null,
-            calories: null,
-            ingredients: [],
-            cover_image: null,
-            rednote_url: rednoteUrl,
-            created_at: new Date().toISOString(),
-            approved_at: null,
-          },
-        ],
-      }),
-    );
-  }, shortcutUrl);
+  // Exactly what the documented iOS Shortcut posts: only rednote_url + status.
+  await seedShortcutWish(page, shortcutUrl);
 
   await page.goto("/chef/wishlist");
 
@@ -184,6 +193,67 @@ test("a shortcut row without a title autofills from the link", async ({
 
   await page.goto("/chef/menu");
   await expect(page.getByText("番茄牛腩煲").first()).toBeVisible();
+});
+
+test("the full dish form keeps the saved link and can AI-fill", async ({
+  page,
+}) => {
+  const shortcutUrl = "https://xhslink.com/a/e2e-form";
+
+  await page.route("**/api/link-meta**", async (route) => {
+    await route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "链接没打开" }),
+    });
+  });
+  await page.route("**/api/ai/recipe", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        draft: {
+          title: "番茄牛腩煲",
+          category: "meat",
+          calories: 520,
+          ingredients: ["牛腩 400g", "番茄 3 个"],
+          steps: ["牛腩焯水切块。", "小火炖 60 分钟。"],
+        },
+      }),
+    });
+  });
+
+  await seedShortcutWish(page, shortcutUrl);
+  await page.goto("/chef/wishlist");
+
+  await page.getByRole("link", { name: "用完整表单做成这道菜" }).click();
+  await expect(page).toHaveURL(/\/chef\/wishlist\/wish-shortcut$/);
+
+  // Issue 1: the saved rednote_url is carried into the recipe-link field.
+  await expect(page.getByLabel(/外部菜谱链接/)).toHaveValue(shortcutUrl);
+
+  // Issue 2: the AI card is visible in the full form and fills the fields.
+  await expect(
+    page.getByRole("heading", { name: "AI 帮忙整理菜谱" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "自动填写菜名和做法" }).click();
+
+  await expect(page.getByLabel(/菜名/)).toHaveValue("番茄牛腩煲");
+  await expect(page.getByLabel("卡路里")).toHaveValue("520");
+  await expect(
+    page.getByPlaceholder("比如：鸡翅两面划刀，冷水下锅焯水。"),
+  ).toHaveValue("牛腩焯水切块。");
+
+  await page.getByRole("button", { name: "保存并上架" }).click();
+  await expect(page).toHaveURL(/\/chef\/menu$/);
+
+  // The dish keeps the link and the wish is marked ready.
+  const stored = await page.evaluate(() =>
+    JSON.parse(window.localStorage.getItem("tonights-kitchen:v1") ?? "{}"),
+  );
+  assert.equal(stored.dishes[0].recipe_link, shortcutUrl);
+  assert.equal(stored.wishlist[0].status, "ready");
+  assert.equal(stored.wishlist[0].title, "番茄牛腩煲");
 });
 
 test("the same note is not queued twice", async ({ page }) => {

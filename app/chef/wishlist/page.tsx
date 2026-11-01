@@ -177,6 +177,14 @@ export default function ChefWishlistPage() {
                     整理菜谱
                   </Button>
                 </div>
+
+                <Link
+                  href={`/chef/wishlist/${wish.id}`}
+                  className="mt-2 flex h-9 items-center justify-center gap-1.5 rounded-full text-[11px] font-semibold text-ink-soft transition hover:bg-cream-deep/50 hover:text-terracotta"
+                >
+                  <ChefHat className="size-3.5" />
+                  用完整表单做成这道菜
+                </Link>
               </li>
             ))}
           </ul>
