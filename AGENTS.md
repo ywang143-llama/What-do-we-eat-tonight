@@ -90,6 +90,7 @@ app/layout.tsx
 | `/wishlist` | Diner wishlist |
 | `/import` | Web Share Target landing: parses `title` / `text` / `url`, saves a `pending_review` wish |
 | `/api/ai/recipe` | Server-only OpenRouter proxy for the wish-inbox AI auto-fill (`GET` reports whether a key is configured) |
+| `/api/link-meta` | Server-only link preview (Open Graph) reader used to autofill URL-only wishes |
 | `/history` | Past dinners + per-dish ratings/comments |
 | `/chef` | Redirects to `/chef/orders` |
 | `/chef/orders` | Live order board, item status, finish night |
@@ -135,11 +136,11 @@ When adding a new entity or mutation:
 | `Order` | order_date, status (`draft` / `submitted` / `completed`), note, timestamps, items |
 | `OrderItem` | order_id, dish_id, status (`pending` / `preparing` / `served`) |
 | `Rating` | order_id, dish_id, rating 1–5, comment; unique per order + dish |
-| `Wish` | title, note, status (`pending_review` / `ready`), source (`manual` / `share`), rednote_url, cover_image, calories, ingredients[], dish_id |
+| `Wish` | title (nullable for link-only rows), note, status (`pending_review` / `ready`), source (`manual` / `share`), rednote_url, cover_image, calories, ingredients[], dish_id |
 
 Order lifecycle: `draft → submitted → completed`. A completed order is not reused; a new draft is created for the next dinner.
 
-Wish lifecycle: `pending_review → ready`. Manual wishes and RedNote shares share the same table; `source` tells them apart (`share` items live in the chef's 心愿收件箱). `completeWish(wishId, patch, dish)` creates the dish and marks the wish `ready` in one step.
+Wish lifecycle: `pending_review → ready`. Manual wishes and RedNote shares share the same table. Inbox placement is decided by `isInboxWish()` in `lib/wish.ts`: `share` rows **or** any pending row carrying a `rednote_url` — the iOS Shortcut inserts only the link, and the column default gives it `source = 'rednote'` (mapped to `share` when loaded). `title` is nullable for those rows, so render `wishTitle(wish)` instead of `wish.title`. `completeWish(wishId, patch, dish)` creates the dish and marks the wish `ready` in one step.
 
 Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new Date().toISOString().slice(0, 10)` for order dates.
 
@@ -297,7 +298,8 @@ Before declaring work done:
 ## 9. Known limitations
 
 - Role switching is a UX mode, not authorization.
-- Web Share Target works on Android / Chromium and Edge only; iOS Safari has no share target, so iPhone users add wishes by hand.
+- Web Share Target works on Android / Chromium and Edge only; iOS Safari has no share target, so iPhone users add wishes with the Shortcut (which needs cloud mode + the anon key) or by hand.
+- RedNote often blocks server-side preview fetches, so `/api/link-meta` can fail; the review modal then relies on pasted text or a screenshot.
 - The AI auto-fill needs `OPENROUTER_API_KEY`; without it the review modal stays fully usable but manual.
 - The AI route is unauthenticated (like the rest of the app) and only throttled in memory; don't expose it publicly without auth.
 - Supabase policies are open for a private household; not suitable for a public deployment.

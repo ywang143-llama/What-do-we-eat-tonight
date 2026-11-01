@@ -231,7 +231,7 @@ The manifest lives at [`public/manifest.json`](public/manifest.json) and the ser
 
 Notes:
 
-- Web Share Target is supported on **Android / Chromium and Edge**. iOS Safari does not implement it yet; use 心愿 → write the dish manually there.
+- Web Share Target is supported on **Android / Chromium and Edge**. iOS Safari does not implement it, so iPhone users use the **iOS Shortcut** below instead.
 - Links and share boilerplate are cleaned up by [`lib/share-import.ts`](lib/share-import.ts); the same URL is never queued twice.
 - The same route works in local demo mode, so you can paste a share URL into the address bar to try it without a phone.
 
@@ -256,6 +256,73 @@ The key is **server-side only** — it has no `NEXT_PUBLIC_` prefix, so it is ne
 
 ---
 
+## iOS Shortcut & Back Tap Integration
+
+### Why a Shortcut?
+
+RedNote (小红书) does not expose a native iOS share-sheet target for web apps, so the installed PWA cannot appear in its share panel on iPhone. Instead, a Shortcut reads the copied RedNote link from the iPhone clipboard and posts it straight to Supabase, where it lands in the chef's **心愿收件箱**.
+
+> Needs cloud mode (Supabase). The local demo kitchen lives in the browser and cannot be written from a Shortcut.
+
+### What the Shortcut writes
+
+**Endpoint**
+
+```text
+POST https://rcqvaxjpuanzpzgxgfgy.supabase.co/rest/v1/wishlist
+```
+
+**Headers**
+
+| Header | Value |
+| --- | --- |
+| `apikey` | `<SUPABASE_ANON_KEY>` |
+| `Authorization` | `Bearer <SUPABASE_ANON_KEY>` |
+| `Content-Type` | `application/json` |
+| `Prefer` | `return=minimal` |
+
+**JSON payload**
+
+```json
+{
+  "rednote_url": "[URLs from Clipboard]",
+  "status": "pending_review"
+}
+```
+
+Notes:
+
+- `title` is optional — the chef's **整理菜谱** sheet reads the link preview (Open Graph tags) and fills the title, note and cover image, then the AI parser guesses ingredients, category and calories.
+- `source` is left to the column default. Any pending row that carries a `rednote_url` shows up in 心愿收件箱, regardless of its `source`.
+- The partial unique index allows only **one pending inbox item per URL**, so posting the same note twice returns `409` — safe to ignore in the Shortcut.
+
+### Build the Shortcut (iPhone)
+
+1. Open **Shortcuts** → **+** and name it `收藏到今晚吃什么`.
+2. Add **Get Clipboard**.
+3. (Recommended) Add **Get URLs from Input** with the clipboard as input, so non-links are rejected.
+4. Add **Get Contents of URL**:
+   - URL: `https://rcqvaxjpuanzpzgxgfgy.supabase.co/rest/v1/wishlist`
+   - Method: **POST**
+   - Headers: the four rows above (`apikey`, `Authorization`, `Content-Type`, `Prefer`).
+   - Request Body: **JSON** with `{"rednote_url": <URLs>, "status": "pending_review"}`, inserting the **URLs** magic variable from step 3 (or **Clipboard** directly).
+5. (Optional) Add **Show Notification** → `已送进心愿收件箱`.
+6. Test it: copy a RedNote link → run the Shortcut → open the app → **心愿 → 心愿收件箱**.
+
+### Trigger it with Back Tap or the Action Button
+
+- **Back Tap** (iPhone 8 and later): 设置 → 辅助功能 → 触控 → 轻点背面 → 轻点两下 → pick `收藏到今晚吃什么`.
+- **Action Button** (iPhone 15 Pro and later): 设置 → 操作按钮 → 快捷指令 → `收藏到今晚吃什么`.
+- Daily flow: RedNote → **分享 → 复制链接** → double-tap the back of the phone → it is waiting in 心愿收件箱.
+
+### Security & limits
+
+- The anon key is public by design for this private kitchen (see the security note below). Anyone holding it can insert rows.
+- RedNote frequently blocks server-side preview fetches. When autofill reports a failure, paste the note text or add a screenshot in **整理菜谱** — the manual form and the AI parser still work.
+- The Shortcut is iOS-only; Android users use the **Web Share Target** described above.
+
+---
+
 ## How it works
 
 ### Tonight's order lifecycle
@@ -271,7 +338,7 @@ The key is **server-side only** — it has no `NEXT_PUBLIC_` prefix, so it is ne
 A wish is either `manual` (written on the diner's 心愿 page) or `share` (sent from RedNote through `/import`). Both start as `pending_review`:
 
 - **Manual wishes** appear under 待实现. The chef taps **做成这道菜**; the dish form opens prefilled and saving creates the dish.
-- **Shared wishes** appear in 心愿收件箱 with **查看原笔记** and **整理菜谱**. The review sheet can auto-fill title, category, calories, ingredients and steps with AI, and saving creates the dish, stores the reviewed ingredients/calories/cover on the wish and marks it `ready`.
+- **Shared wishes** appear in 心愿收件箱 with **查看原笔记** and **整理菜谱**. Rows that only carry a `rednote_url` (iOS Shortcut) show the fallback title 小红书收藏的菜 until reviewed. The review sheet reads the link preview (`GET /api/link-meta`), fills title/note/cover, can auto-fill ingredients, category, calories and steps with AI, and saving creates the dish, stores the reviewed ingredients/calories/cover on the wish and marks it `ready`.
 
 Either way the wish becomes `ready` with a link to the new dish, and the diner sees 大厨已经学会啦.
 
@@ -289,7 +356,7 @@ In Supabase mode the app subscribes to Postgres changes on all five tables and a
 | `orders` | One dinner per night: date, status (`draft` / `submitted` / `completed`), note, timestamps |
 | `order_items` | Dishes in an order with status (`pending` / `preparing` / `served`) |
 | `ratings` | One rating + comment per dish per order (unique on `order_id, dish_id`) |
-| `wishlist` | Wishes from the diner plus RedNote shares awaiting review: `title`, `note`, `status` (`pending_review` / `ready`), `source` (`manual` / `share`), `rednote_url`, `cover_image`, `calories`, `ingredients`, optional link to the created dish |
+| `wishlist` | Wishes from the diner plus RedNote shares awaiting review: `title` (nullable — Shortcut rows start without one), `note`, `status` (`pending_review` / `ready`), `source` (`manual` / `share` / `rednote`), `rednote_url`, `cover_image`, `calories`, `ingredients`, optional link to the created dish |
 
 Categories are fixed in [`lib/categories.ts`](lib/categories.ts): `staple`, `vegetable`, `meat`, `soup`, `snack`.
 
