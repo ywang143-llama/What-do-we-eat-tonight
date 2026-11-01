@@ -91,6 +91,7 @@ app/layout.tsx
 | `/import` | Web Share Target landing: parses `title` / `text` / `url`, saves a `pending_review` wish |
 | `/api/ai/recipe` | Server-only OpenRouter proxy for the wish-inbox AI auto-fill (`GET` reports whether a key is configured) |
 | `/api/link-meta` | Server-only link preview (Open Graph) reader used to autofill URL-only wishes |
+| `/api/dish-image` | Server-only Unsplash photo search for the dish form's ✨ 自动找图 button |
 | `/history` | Past dinners + per-dish ratings/comments |
 | `/chef` | Redirects to `/chef/orders` |
 | `/chef/orders` | Live order board, item status, finish night |
@@ -151,6 +152,7 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 - Env: copy `.env.example` → `.env.local`. `.gitignore` ignores `.env*` except `.env.example`, so `.env.production` and `.env.development` are covered too.
 - **Never commit any `.env*` file or a service-role key.** Only the public anon/publishable key may ever reach the browser.
 - `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` are **server-only** (no `NEXT_PUBLIC_` prefix) and read inside `app/api/ai/recipe/route.ts`. Never move them into the client bundle.
+- `UNSPLASH_ACCESS_KEY` is **server-only** too, read by `app/api/dish-image/route.ts`; without it the ✨ 自动找图 button shows a friendly note and manual upload still works.
 - `NEXT_PUBLIC_*` values are inlined at build time — restart `next dev`, or redeploy on Vercel, after changing them.
 - Reset: 设置 → 重置演示数据 calls `resetLocalData()` and reseeds the demo DB. Cloud mode has **no in-app reset** by design; wipe cloud data with SQL instead.
 - Cloud images go to the public `dish-images` bucket; local images are compressed data URLs.
@@ -185,7 +187,7 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 
 ### Diner (点餐员)
 
-- Browse/search categorized menu; categories: `主食`, `蔬菜`, `肉类/禽类`, `汤品/饮料`, `小吃/甜品`.
+- Browse/search categorized menu; categories: `主食`, `蔬菜`, `肉类/蛋类`, `汤品/饮料`, `小吃/甜品`.
 - Add/remove dishes for tonight; see calories and per-person average.
 - Write an optional note; submit the order.
 - Add wishes; view approved wishes.
@@ -301,6 +303,8 @@ Before declaring work done:
 - Role switching is a UX mode, not authorization.
 - Web Share Target works on Android / Chromium and Edge only; iOS Safari has no share target, so iPhone users add wishes with the Shortcut (which needs cloud mode + the anon key) or by hand.
 - RedNote often blocks server-side preview fetches, so `/api/link-meta` can fail; the review modal then relies on pasted text or a screenshot.
+- Dishes that already appeared in a dinner cannot be deleted (`order_items` restricts the FK); the UI asks the chef to 下架 instead so history and ratings survive.
+- The ✨ 自动找图 button needs `UNSPLASH_ACCESS_KEY`; without it the chef uploads a photo by hand.
 - The AI auto-fill needs `OPENROUTER_API_KEY`; without it the review modal stays fully usable but manual.
 - The AI route is unauthenticated (like the rest of the app) and only throttled in memory; don't expose it publicly without auth.
 - Supabase policies are open for a private household; not suitable for a public deployment.
