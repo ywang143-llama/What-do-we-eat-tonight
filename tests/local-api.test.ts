@@ -180,6 +180,28 @@ describe("localApi.addSharedWish", () => {
     assert.equal(readSnapshot().wishlist.length, 2);
   });
 
+  it("accepts a URL-only row from the iOS Shortcut (no title)", async () => {
+    await localApi.addSharedWish({
+      title: null,
+      rednote_url: "https://xhslink.com/a/shortcut",
+      note: null,
+    });
+
+    const [wish] = readSnapshot().wishlist;
+    assert.equal(wish.title, null);
+    assert.equal(wish.status, "pending_review");
+    assert.equal(wish.source, "share");
+    assert.equal(wish.rednote_url, "https://xhslink.com/a/shortcut");
+  });
+
+  it("rejects a row with neither a title nor a link", async () => {
+    await assert.rejects(
+      () =>
+        localApi.addSharedWish({ title: null, rednote_url: null, note: null }),
+      /没有菜名/,
+    );
+  });
+
   it("keeps links without a URL and rejects an empty title", async () => {
     await localApi.addSharedWish({
       title: "手写的心愿",
@@ -249,6 +271,28 @@ describe("localApi.completeWish", () => {
     assert.deepEqual(wish.ingredients, ["牛腩 400g", "番茄 3 个"]);
     assert.equal(wish.cover_image, "https://example.test/cover.jpg");
     assert.ok(wish.approved_at);
+  });
+
+  it("fills a missing title from the dish name", async () => {
+    writeSnapshot({ wishlist: [makeWish({ title: null })] });
+
+    const dishId = await localApi.completeWish(
+      "wish-test-1",
+      {
+        title: "",
+        calories: null,
+        ingredients: [],
+        cover_image: null,
+        rednote_url: "https://xhslink.com/a/test",
+      },
+      { ...dishInput, name: "番茄牛腩" },
+    );
+
+    const snapshot = readSnapshot();
+    const [wish] = snapshot.wishlist;
+    assert.equal(wish.title, "番茄牛腩");
+    assert.equal(wish.status, "ready");
+    assert.equal(wish.dish_id, dishId);
   });
 
   it("changes nothing when the dish has no name", async () => {

@@ -1,9 +1,14 @@
 import { parseRecipeDraft, RECIPE_SYSTEM_PROMPT } from "@/lib/ai-recipe";
+import { fetchLinkMeta, isSafeExternalUrl } from "@/lib/link-meta";
 
 /**
  * Server-only bridge to OpenRouter for the "Auto-fill with AI" button in the
  * chef's wish inbox. The key never reaches the browser: the client calls this
  * route, the route calls OpenRouter.
+ *
+ * Wishes created from a bare RedNote link have no note text, so the route can
+ * read the page's Open Graph tags first (see `lib/link-meta.ts`) and feed that
+ * to the model instead.
  */
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -12,6 +17,8 @@ const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const MAX_TEXT_LENGTH = 4000;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 8;
+
+export const maxDuration = 60;
 
 // Best-effort, per-instance throttle. Enough to stop accidental loops.
 const hits = new Map<string, number[]>();
@@ -76,17 +83,53 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { text?: unknown; image?: unknown };
+  let body: { text?: unknown; image?: unknown; url?: unknown };
   try {
-    body = (await request.json()) as { text?: unknown; image?: unknown };
+    body = (await request.json()) as {
+      text?: unknown;
+      image?: unknown;
+      url?: unknown;
+    };
   } catch {
     return Response.json({ error: "请求格式不太对，再试一次" }, { status: 400 });
   }
 
-  const text = typeof body.text === "string"
+  const image = isImageDataUrl(body.image) ? body.image : null;
+  const linkUrl =
+    typeof body.url === "string" && isSafeExternalUrl(body.url)
+      ? body.url.trim()
+      : null;
+  let text = typeof body.text === "string"
     ? body.text.trim().slice(0, MAX_TEXT_LENGTH)
     : "";
-  const image = isImageDataUrl(body.image) ? body.image : null;
+
+  // A wish that only carries a RedNote link has no text to parse yet, so read
+  // the page preview first and feed that to the model.
+  if (!text && !image && linkUrl) {
+    try {
+      const meta = await fetchLinkMeta(linkUrl);
+      const preview = [meta.title, meta.description]
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+      if (!preview) {
+        return Response.json(
+          { error: "这个链接里没有可读的内容，贴一下笔记文字或截图吧" },
+          { status: 422 },
+        );
+      }
+      text = preview.slice(0, MAX_TEXT_LENGTH);
+    } catch {
+      return Response.json(
+        {
+          error:
+            "链接没打开（小红书可能会挡住自动读取），贴一下笔记文字或截图吧",
+        },
+        { status: 502 },
+      );
+    }
+  }
+
   if (!text && !image) {
     return Response.json(
       { error: "把笔记文字或截图给我，我才能帮你整理呀" },

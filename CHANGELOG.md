@@ -8,6 +8,17 @@ the project uses [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Added
 
+- **iOS Shortcut & Back Tap documentation** — `README.md` explains how to read a copied
+  RedNote link from the iPhone clipboard and `POST` it to `…/rest/v1/wishlist` as
+  `{ "rednote_url": …, "status": "pending_review" }` (includes Back Tap / Action Button setup).
+- **Link preview autofill** — `GET /api/link-meta` reads Open Graph / Twitter / `<title>` tags
+  (`lib/link-meta.ts`, with an SSRF guard for private hosts). The Review modal fills the title,
+  note and cover image automatically for wishes that only carry a `rednote_url`.
+- **AI parsing for link-only wishes** — `POST /api/ai/recipe` accepts `url` and reads the page
+  preview when there is no pasted text or screenshot, so the shortcut rows can be AI-filled.
+- `lib/wish.ts` — `wishTitle()`, `isInboxWish()` and `isManualWish()` presentation helpers.
+- Tests: `tests/link-meta.test.ts`, `tests/wish.test.ts`, a URL-only adapter case and a new
+  Playwright spec for the shortcut→inbox→autofill→publish flow.
 - **Web Share Target** — `public/manifest.json` now exposes a `share_target`
   (GET → `/import?title=…&text=…&url=…`), so a RedNote (小红书) share can be sent
   straight to the installed app on Android / Chromium.
@@ -39,7 +50,8 @@ the project uses [Conventional Commits](https://www.conventionalcommits.org/).
 - **Wishlist model** — `wishlist` rows are now
   `{ id, title, note, status, source, rednote_url, cover_image, calories, ingredients, dish_id, created_at, approved_at }`.
   Statuses are `pending_review` → `ready` (replacing `pending` → `approved`);
-  `source` is `manual` or `share`.
+  `source` is `manual` or `share` (a direct REST insert may store `rednote`,
+  which loads as `share`).
 - `KitchenApi` gained `addSharedWish`, `markWishReady` and `completeWish`
   (`approveWish` was renamed), implemented in both the localStorage and the
   Supabase adapters. Local storage is migrated on read, so existing demo
@@ -59,3 +71,24 @@ the project uses [Conventional Commits](https://www.conventionalcommits.org/).
 
 - Wish approvals from the share inbox now persist the reviewed ingredients,
   calories and cover image alongside the created dish.
+- **Wishlist → dish flow for link-only rows** — `title` is nullable end to end
+  (schema, types, both adapters, diner/chef lists and the review sheet), so rows
+  inserted by the iOS Shortcut no longer render blank titles or crash the
+  controlled inputs, and they appear in 心愿收件箱 even though their `source`
+  defaults to `rednote`/`manual`.
+- **AI parser had nothing to read for shortcut rows** — the route now falls back
+  to the link preview (or the text/screenshot pasted in the sheet), so
+  `自动填写` actually returns ingredients/calories instead of a 400.
+- `supabase/schema.sql` now drops `not null` on `wishlist.title` for existing
+  projects and allows `rednote` in the source check, so shortcut inserts stop
+  failing on a freshly re-run schema.
+- **Wish → dish form lost the source link** — `DishForm` now seeds 外部菜谱链接
+  from `wish.rednote_url` (and the cover from `wish.cover_image`), so publishing
+  from 用完整表单做成这道菜 keeps the original note attached to the dish.
+- **AI assist was only in the review sheet** — the full dish form now has an
+  **AI 帮忙整理菜谱 / 自动填写菜名和做法** panel (visible when a wish or a recipe
+  link is present) and 心愿收件箱 cards gained a 用完整表单做成这道菜 link.
+  Publishing from the form goes through `completeWish`, so the wish keeps its
+  link/ingredients and is marked `ready` in one step.
+- Added `data-scroll-behavior="smooth"` to `<html>` to silence the Next.js
+  smooth-scroll transition warning.

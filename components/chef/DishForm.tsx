@@ -26,6 +26,7 @@ import { CATEGORIES, CATEGORY_EMOJI, CATEGORY_MAP } from "@/lib/categories";
 import type { Category, Dish, DishInput, Wish } from "@/lib/types";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { cn, errorMessage } from "@/lib/utils";
+import { wishTitle } from "@/lib/wish";
 
 const EMOJI_CHOICES = [
   "🍜", "🍚", "🍛", "🥟", "🥦", "🥬", "🍆", "🥒",
@@ -98,7 +99,7 @@ function DishFormInner({
   wishlistId?: string;
 }) {
   const router = useRouter();
-  const { saveDish, uploadImage, notify, mode } = useKitchen();
+  const { saveDish, completeWish, uploadImage, notify, mode } = useKitchen();
   const editing = Boolean(dish);
 
   useDocumentTitle(editing ? "编辑菜谱" : "添加新菜");
@@ -114,15 +115,20 @@ function DishFormInner({
     dish?.emoji || CATEGORY_EMOJI[dish?.category ?? "staple"],
   );
   const [imageUrl, setImageUrl] = useState<string | null>(
-    dish?.image_url ?? null,
+    dish?.image_url ?? wish?.cover_image ?? null,
   );
   const [steps, setSteps] = useState<string[]>(
     dish?.recipe_steps.length ? dish.recipe_steps : [""],
   );
-  const [recipeLink, setRecipeLink] = useState(dish?.recipe_link ?? "");
+  // Carry the saved RedNote link over from the wish so the source URL is never lost.
+  const [recipeLink, setRecipeLink] = useState(
+    dish?.recipe_link ?? wish?.rednote_url ?? "",
+  );
   const [isActive, setIsActive] = useState(dish?.is_active ?? true);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiHint, setAiHint] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const emojiChoices = useMemo(
@@ -170,6 +176,70 @@ function DishFormInner({
     setCategory(next);
   };
 
+  /**
+   * Optional AI assist in the full dish form. Uses whatever the wish carried
+   * (title + note) and/or the RedNote link, so link-only imports work too.
+   */
+  const handleAiFill = async () => {
+    if (aiBusy) return;
+
+    const text = [wish?.title, wish?.note].filter(Boolean).join("\n").trim();
+    const url = recipeLink.trim();
+    if (!text && !url) {
+      notify("先填上菜谱链接，或者从心愿收件箱进来", "error");
+      return;
+    }
+
+    setAiBusy(true);
+    setAiHint("正在读这条笔记…");
+    try {
+      const response = await fetch("/api/ai/recipe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: text || undefined,
+          url: url || undefined,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            draft?: {
+              title: string;
+              category: Category;
+              calories: number;
+              ingredients: string[];
+              steps: string[];
+            };
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || !payload?.draft) {
+        setAiHint(null);
+        notify(payload?.error ?? "AI 暂时没回应，先手动写吧", "error");
+        return;
+      }
+
+      const { draft } = payload;
+      if (draft.title) setName(draft.title);
+      if (draft.category) {
+        setCategory(draft.category);
+        setEmoji(CATEGORY_EMOJI[draft.category]);
+      }
+      if (draft.calories > 0) setCalories(String(draft.calories));
+      if (draft.steps.length) setSteps(draft.steps);
+      setAiHint("AI 已经填好啦，检查一下再保存");
+      notify("AI 已经整理好这道菜", "success");
+    } catch (aiError) {
+      setAiHint(null);
+      notify(errorMessage(aiError), "error");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const showAiCard = Boolean(wish) || /^https?:\/\//i.test(recipeLink.trim());
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (saving || uploading) return;
@@ -197,7 +267,21 @@ function DishFormInner({
     };
 
     setSaving(true);
-    const saved = await saveDish(input, dish?.id, wishlistId);
+    // When a wish becomes a dish, publish both in one step so the reviewed
+    // recipe stays attached to the wish (and the link is never lost).
+    const saved = wishlistId && wish && !dish
+      ? await completeWish(
+          wishlistId,
+          {
+            title: name,
+            calories: calories ? numericCalories : null,
+            ingredients: wish.ingredients,
+            cover_image: imageUrl,
+            rednote_url: recipeLink.trim() || null,
+          },
+          input,
+        )
+      : Boolean(await saveDish(input, dish?.id));
     setSaving(false);
 
     if (saved) router.push("/chef/menu");
@@ -236,7 +320,7 @@ function DishFormInner({
               来自点餐员的心愿
             </p>
             <p className="mt-0.5 text-[12.5px] font-bold text-ink">
-              {wish.title}
+              {wishTitle(wish)}
             </p>
             {wish.note ? (
               <p className="mt-0.5 text-[10.5px] leading-relaxed text-ink-soft">
@@ -248,6 +332,38 @@ function DishFormInner({
             </p>
           </div>
         </div>
+      ) : null}
+
+      {showAiCard ? (
+        <section className="mt-4 rounded-3xl border border-[#EAD8BF] bg-[#FBF1E1] p-3.5">
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="size-3.5 text-amber" />
+            <h2 className="text-[12px] font-bold text-[#7E5B31]">
+              AI 帮忙整理菜谱
+            </h2>
+          </div>
+          <p className="mt-1 text-[10.5px] leading-relaxed text-[#8A6A42]">
+            {recipeLink
+              ? "会读这条笔记的链接和文字，试着填好菜名、分类、热量和做法步骤。"
+              : "会读心愿里的文字，试着填好菜名、分类、热量和做法步骤。"}
+          </p>
+          <Button
+            type="button"
+            variant="amber"
+            size="sm"
+            className="mt-2.5 w-full"
+            loading={aiBusy}
+            onClick={() => void handleAiFill()}
+          >
+            <Sparkles className="size-3.5" />
+            自动填写菜名和做法
+          </Button>
+          {aiHint ? (
+            <p className="mt-1.5 text-center text-[10px] text-[#8A6A42]">
+              {aiHint}
+            </p>
+          ) : null}
+        </section>
       ) : null}
 
       <section className="mt-5 rounded-4xl border border-line bg-paper p-4 shadow-card">

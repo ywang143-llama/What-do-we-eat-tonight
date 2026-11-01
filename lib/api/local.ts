@@ -30,19 +30,22 @@ function normalizeWish(row: Partial<Wish> & { name?: unknown }): Wish {
   const status = legacyStatus === "approved" || legacyStatus === "ready"
     ? "ready"
     : "pending_review";
-  const title =
+  const legacyTitle =
     typeof row.title === "string" && row.title.trim()
       ? row.title
       : typeof row.name === "string" && row.name.trim()
         ? row.name
-        : "小心愿";
+        : null;
 
   return {
     id: String(row.id ?? createId("wish")),
-    title,
+    title: legacyTitle,
     note: typeof row.note === "string" ? row.note : null,
     status,
-    source: row.source === "share" ? "share" : "manual",
+    source:
+      row.source === "share" || (row.source as string) === "rednote"
+        ? "share"
+        : "manual",
     dish_id: typeof row.dish_id === "string" ? row.dish_id : null,
     calories: typeof row.calories === "number" ? row.calories : null,
     ingredients: Array.isArray(row.ingredients)
@@ -274,8 +277,10 @@ export const localApi: KitchenApi = {
 
   async addSharedWish({ title, rednote_url, note }: SharedWishInput) {
     const data = readDB();
-    const trimmed = title.trim();
-    if (!trimmed) throw new Error("这条分享没有菜名，试试换个方式收藏吧");
+    const trimmed = title?.trim() || null;
+    if (!trimmed && !rednote_url) {
+      throw new Error("这条分享没有菜名，试试换个方式收藏吧");
+    }
 
     const duplicate = rednote_url
       ? data.wishlist.find(
