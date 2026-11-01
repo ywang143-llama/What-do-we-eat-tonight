@@ -58,7 +58,11 @@ export interface Rating {
 
 export interface Wish {
   id: string;
-  title: string;
+  /**
+   * Null for rows inserted straight into Supabase (iOS Shortcut) that only
+   * carry a `rednote_url`; the UI renders `wishTitle(wish)` instead.
+   */
+  title: string | null;
   note: string | null;
   status: WishStatus;
   source: WishSource;
@@ -96,9 +100,9 @@ export interface RatingInput {
   comment: string;
 }
 
-/** A wish that arrived through the Web Share Target (`/import`). */
+/** A wish that arrived through the Web Share Target (`/import`) or a link. */
 export interface SharedWishInput {
-  title: string;
+  title: string | null;
   rednote_url: string | null;
   note: string | null;
 }

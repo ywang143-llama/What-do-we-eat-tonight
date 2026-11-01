@@ -24,6 +24,7 @@ import { PageLoading } from "@/components/ui/PageLoading";
 import type { Wish } from "@/lib/types";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { cn, formatDate, todayISO } from "@/lib/utils";
+import { isInboxWish, isManualWish, wishTitle } from "@/lib/wish";
 
 export default function ChefWishlistPage() {
   useDocumentTitle("心愿审批");
@@ -35,9 +36,7 @@ export default function ChefWishlistPage() {
   const inbox = useMemo(
     () =>
       wishlist
-        .filter(
-          (wish) => wish.status === "pending_review" && wish.source === "share",
-        )
+        .filter(isInboxWish)
         .sort((a, b) => b.created_at.localeCompare(a.created_at)),
     [wishlist],
   );
@@ -45,9 +44,7 @@ export default function ChefWishlistPage() {
   const pending = useMemo(
     () =>
       wishlist
-        .filter(
-          (wish) => wish.status === "pending_review" && wish.source !== "share",
-        )
+        .filter(isManualWish)
         .sort((a, b) => b.created_at.localeCompare(a.created_at)),
     [wishlist],
   );
@@ -120,7 +117,7 @@ export default function ChefWishlistPage() {
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={wish.cover_image}
-                        alt={wish.title}
+                        alt={wishTitle(wish)}
                         className="size-full object-cover"
                       />
                     ) : (
@@ -131,7 +128,7 @@ export default function ChefWishlistPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <h3 className="line-clamp-2 text-[13.5px] font-bold text-ink">
-                      {wish.title}
+                      {wishTitle(wish)}
                     </h3>
                     {wish.note ? (
                       <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-ink-soft">
@@ -146,7 +143,7 @@ export default function ChefWishlistPage() {
                   <button
                     type="button"
                     onClick={() => setPendingDelete(wish)}
-                    aria-label={`删除心愿${wish.title}`}
+                    aria-label={`删除心愿${wishTitle(wish)}`}
                     className="grid size-9 shrink-0 place-items-center rounded-full text-ink-soft/60 transition hover:bg-rose-soft hover:text-terracotta"
                   >
                     <Trash2 className="size-3.5" />
@@ -212,7 +209,7 @@ export default function ChefWishlistPage() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <h3 className="text-[14px] font-bold text-ink">
-                      {wish.title}
+                      {wishTitle(wish)}
                     </h3>
                     {wish.note ? (
                       <p className="mt-1 text-[11.5px] leading-relaxed text-ink-soft">
@@ -227,7 +224,7 @@ export default function ChefWishlistPage() {
                   <button
                     type="button"
                     onClick={() => setPendingDelete(wish)}
-                    aria-label={`删除心愿${wish.title}`}
+                    aria-label={`删除心愿${wishTitle(wish)}`}
                     className="grid size-9 shrink-0 place-items-center rounded-full text-ink-soft/60 transition hover:bg-rose-soft hover:text-terracotta"
                   >
                     <Trash2 className="size-3.5" />
@@ -279,7 +276,7 @@ export default function ChefWishlistPage() {
                   <CheckCircle2 className="size-4 shrink-0 text-sage" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[12px] font-semibold text-ink">
-                      {dish?.name ?? wish.title}
+                      {dish?.name ?? wishTitle(wish)}
                     </p>
                     <p className="text-[9.5px] text-ink-soft">
                       {wish.approved_at
@@ -317,7 +314,7 @@ export default function ChefWishlistPage() {
         title="移除这个心愿？"
         description={
           pendingDelete
-            ? `「${pendingDelete.title}」会从心愿单里消失，点餐员不会收到通知。`
+            ? `「${wishTitle(pendingDelete)}」会从心愿单里消失，点餐员不会收到通知。`
             : ""
         }
         confirmLabel="移除"

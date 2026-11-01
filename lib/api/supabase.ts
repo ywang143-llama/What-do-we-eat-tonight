@@ -91,14 +91,22 @@ function mapOrder(row: any): Order {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapWish(row: any): Wish {
+  const title =
+    typeof row.title === "string" && row.title.trim()
+      ? row.title
+      : typeof row.name === "string" && row.name.trim()
+        ? row.name
+        : null;
+
   return {
     id: row.id,
-    title: row.title ?? row.name ?? "小心愿",
+    title,
     note: row.note ?? null,
     status: row.status === "ready" || row.status === "approved"
       ? "ready"
       : "pending_review",
-    source: row.source === "share" ? "share" : "manual",
+    source:
+      row.source === "share" || row.source === "rednote" ? "share" : "manual",
     dish_id: row.dish_id ?? null,
     calories: typeof row.calories === "number" ? row.calories : null,
     ingredients: Array.isArray(row.ingredients) ? row.ingredients : [],
@@ -304,8 +312,10 @@ export const supabaseApi: KitchenApi = {
 
   async addSharedWish({ title, rednote_url, note }: SharedWishInput) {
     const db = client();
-    const trimmed = title.trim();
-    if (!trimmed) throw new Error("这条分享没有菜名，试试换个方式收藏吧");
+    const trimmed = title?.trim() || null;
+    if (!trimmed && !rednote_url) {
+      throw new Error("这条分享没有菜名，试试换个方式收藏吧");
+    }
 
     if (rednote_url) {
       const { data: duplicate, error: findError } = await db

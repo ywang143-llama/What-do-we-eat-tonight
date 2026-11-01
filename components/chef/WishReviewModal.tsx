@@ -10,7 +10,7 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useKitchen } from "@/components/providers/KitchenProvider";
 import { Button } from "@/components/ui/Button";
@@ -38,7 +38,7 @@ function splitLines(value: string): string[] {
 export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
   const { completeWish, uploadImage, notify } = useKitchen();
 
-  const [title, setTitle] = useState(wish.title);
+  const [title, setTitle] = useState(wish.title ?? "");
   const [category, setCategory] = useState<Category>("staple");
   const [calories, setCalories] = useState(
     typeof wish.calories === "number" ? String(wish.calories) : "",
@@ -53,9 +53,65 @@ export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
   const [aiBusy, setAiBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [linkState, setLinkState] = useState<
+    "idle" | "loading" | "loaded" | "failed"
+  >("idle");
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const shotInputRef = useRef<HTMLInputElement>(null);
+  const linkLookupStarted = useRef(false);
+
+  // Wishes created by the iOS Shortcut only carry a URL: read the link preview
+  // so the title / note / cover are not empty when the sheet opens.
+  const loadLinkMeta = useCallback(async () => {
+    const url = wish.rednote_url;
+    if (!url) return;
+
+    setLinkState("loading");
+    try {
+      const response = await fetch(
+        `/api/link-meta?url=${encodeURIComponent(url)}`,
+      );
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            meta?: {
+              title: string | null;
+              description: string | null;
+              image: string | null;
+            };
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || !payload?.meta) {
+        setLinkState("failed");
+        return;
+      }
+
+      const { title: linkTitle, description, image } = payload.meta;
+      if (linkTitle) {
+        setTitle((current) => (current.trim() ? current : linkTitle));
+      }
+      if (description) {
+        setNote((current) => (current.trim() ? current : description));
+      }
+      if (image) {
+        setCoverImage((current) => current ?? image);
+      }
+      setLinkState("loaded");
+    } catch {
+      setLinkState("failed");
+    }
+  }, [wish.rednote_url]);
+
+  useEffect(() => {
+    // Only link-only rows need the preview: skip the request when the share
+    // already carried a title and some note text.
+    const needsPreview = !wish.title?.trim() || !wish.note?.trim();
+    if (!wish.rednote_url || !needsPreview || linkLookupStarted.current) return;
+    linkLookupStarted.current = true;
+    void loadLinkMeta();
+  }, [loadLinkMeta, wish.note, wish.rednote_url, wish.title]);
 
   useEffect(() => {
     const original = document.body.style.overflow;
@@ -104,8 +160,8 @@ export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
 
   const handleAiFill = async () => {
     if (aiBusy) return;
-    const text = [wish.title, note].filter(Boolean).join("\n").trim();
-    if (!text && !screenshot) {
+    const text = [title, note].filter(Boolean).join("\n").trim();
+    if (!text && !screenshot && !wish.rednote_url) {
       notify("先写一点笔记内容，或者加一张截图", "error");
       return;
     }
@@ -115,7 +171,11 @@ export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
       const response = await fetch("/api/ai/recipe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, image: screenshot ?? undefined }),
+        body: JSON.stringify({
+          text: text || undefined,
+          image: screenshot ?? undefined,
+          url: wish.rednote_url ?? undefined,
+        }),
       });
       const payload = (await response.json().catch(() => null)) as
         | {
@@ -239,6 +299,34 @@ export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
             </a>
           ) : null}
 
+          {linkState !== "idle" ? (
+            <p className="mt-1.5 flex flex-wrap items-center gap-1.5 px-0.5 text-[10.5px] text-ink-soft">
+              {linkState === "loading" ? (
+                <>
+                  <Loader2 className="size-3 animate-spin text-terracotta" />
+                  正在从链接读取标题…
+                </>
+              ) : null}
+              {linkState === "loaded" ? (
+                <span className="font-medium text-sage">
+                  已从链接读出标题和简介
+                </span>
+              ) : null}
+              {linkState === "failed" ? (
+                <>
+                  链接没打开，贴一下笔记文字也可以
+                  <button
+                    type="button"
+                    onClick={() => void loadLinkMeta()}
+                    className="font-semibold text-terracotta"
+                  >
+                    重试
+                  </button>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+
           <section className="mt-3 rounded-3xl border border-[#EAD8BF] bg-[#FBF1E1] p-3.5">
             <div className="flex items-center gap-1.5">
               <Wand2 className="size-3.5 text-amber" />
@@ -247,7 +335,7 @@ export function WishReviewModal({ wish, onClose }: WishReviewModalProps) {
               </h3>
             </div>
             <p className="mt-1 text-[10.5px] leading-relaxed text-[#8A6A42]">
-              可以补充笔记文字，或者加一张截图，AI 会猜出食材、分类和大概热量。
+              没有文字时会先读链接里的简介；也可以补充做法或加一张截图，AI 会猜出食材、分类和大概热量。
             </p>
 
             <textarea

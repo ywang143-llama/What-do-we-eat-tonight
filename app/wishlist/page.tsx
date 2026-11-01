@@ -19,6 +19,7 @@ import { PageIntro } from "@/components/ui/PageIntro";
 import { PageLoading } from "@/components/ui/PageLoading";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { formatDate, todayISO } from "@/lib/utils";
+import { wishTitle } from "@/lib/wish";
 
 export default function WishlistPage() {
   useDocumentTitle("心愿单");
@@ -137,7 +138,7 @@ export default function WishlistPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <h3 className="truncate text-[13.5px] font-bold text-ink">
-                      {wish.title}
+                      {wishTitle(wish)}
                     </h3>
                     <span className="shrink-0 rounded-full bg-[#FCF1DE] px-1.5 py-0.5 text-[9px] font-semibold text-[#8A5E1F]">
                       等大厨翻牌
@@ -208,7 +209,7 @@ export default function WishlistPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-[13px] font-bold text-ink">
-                      {dish?.name ?? wish.title}
+                      {dish?.name ?? wishTitle(wish)}
                     </h3>
                     <p className="mt-0.5 flex items-center gap-1 text-[10.5px] font-medium text-[#58704B]">
                       <CheckCircle2 className="size-3" />

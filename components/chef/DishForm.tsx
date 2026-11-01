@@ -26,6 +26,7 @@ import { CATEGORIES, CATEGORY_EMOJI, CATEGORY_MAP } from "@/lib/categories";
 import type { Category, Dish, DishInput, Wish } from "@/lib/types";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { cn, errorMessage } from "@/lib/utils";
+import { wishTitle } from "@/lib/wish";
 
 const EMOJI_CHOICES = [
   "🍜", "🍚", "🍛", "🥟", "🥦", "🥬", "🍆", "🥒",
@@ -236,7 +237,7 @@ function DishFormInner({
               来自点餐员的心愿
             </p>
             <p className="mt-0.5 text-[12.5px] font-bold text-ink">
-              {wish.title}
+              {wishTitle(wish)}
             </p>
             {wish.note ? (
               <p className="mt-0.5 text-[10.5px] leading-relaxed text-ink-soft">

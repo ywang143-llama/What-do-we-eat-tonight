@@ -23,6 +23,15 @@ function shareHref(params: { title?: string; text?: string; url?: string }) {
 test("a shared note lands in the chef's wish inbox and can be published", async ({
   page,
 }) => {
+  // This note already has a title + text, so the sheet should not need the link.
+  await page.route("**/api/link-meta**", async (route) => {
+    await route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "链接没打开" }),
+    });
+  });
+
   await page.goto(shareHref({ title: SHARE_TITLE, text: SHARE_TEXT, url: SHARE_URL }));
 
   // Success state + quick toast.
@@ -95,6 +104,86 @@ test("an empty share shows guidance instead of saving junk", async ({ page }) =>
     "href",
     "/wishlist",
   );
+});
+
+test("a shortcut row without a title autofills from the link", async ({
+  page,
+}) => {
+  const shortcutUrl = "https://xhslink.com/a/e2e-shortcut";
+
+  // RedNote may block server fetches, so mock the preview endpoint here.
+  await page.route("**/api/link-meta**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        meta: {
+          url: shortcutUrl,
+          title: "番茄牛腩煲",
+          description: "两人份，番茄炖到化开，汤汁泡饭。",
+          image: null,
+          siteName: "小红书",
+        },
+      }),
+    });
+  });
+
+  // Exactly what the documented iOS Shortcut posts: only rednote_url + status,
+  // no title, and the column default leaves source as "manual".
+  await page.addInitScript((rednoteUrl) => {
+    if (window.localStorage.getItem("tonights-kitchen:v1")) return;
+    window.localStorage.setItem(
+      "tonights-kitchen:v1",
+      JSON.stringify({
+        dishes: [],
+        orders: [],
+        ratings: [],
+        wishlist: [
+          {
+            id: "wish-shortcut",
+            title: null,
+            note: null,
+            status: "pending_review",
+            source: "manual",
+            dish_id: null,
+            calories: null,
+            ingredients: [],
+            cover_image: null,
+            rednote_url: rednoteUrl,
+            created_at: new Date().toISOString(),
+            approved_at: null,
+          },
+        ],
+      }),
+    );
+  }, shortcutUrl);
+
+  await page.goto("/chef/wishlist");
+
+  // It still shows up in the inbox, with a readable fallback title.
+  const item = page.locator("li").filter({ hasText: "小红书收藏的菜" }).first();
+  await expect(item).toBeVisible();
+  await expect(item.getByRole("link", { name: "查看原笔记" })).toHaveAttribute(
+    "href",
+    shortcutUrl,
+  );
+
+  await item.getByRole("button", { name: "整理菜谱" }).click();
+  const dialog = page.getByRole("dialog", { name: "整理这道菜" });
+  await expect(dialog).toBeVisible();
+
+  // Link preview autofills the title and the AI note field.
+  await expect(dialog.getByLabel("菜名")).toHaveValue("番茄牛腩煲");
+  await expect(
+    dialog.getByPlaceholder("粘贴小红书里的做法文字…"),
+  ).toHaveValue(/番茄炖到化开/);
+
+  await dialog.getByLabel("卡路里").fill("520");
+  await dialog.getByRole("button", { name: "保存并上架" }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.goto("/chef/menu");
+  await expect(page.getByText("番茄牛腩煲").first()).toBeVisible();
 });
 
 test("the same note is not queued twice", async ({ page }) => {

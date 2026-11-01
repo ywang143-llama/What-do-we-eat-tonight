@@ -91,6 +91,11 @@ comment on table public.wishlist is 'Wishes from the diner, plus RedNote shares 
 -- ------------------------------------------------------------
 -- Re-running this block is safe. It renames the old `name` column, adds the
 -- share-import columns and moves the old statuses onto the new ones.
+--
+-- `title` is intentionally nullable: the iOS Shortcut posts only a
+-- `rednote_url` + `status`, and the chef's Review modal fills the title later.
+-- `source` accepts `rednote` (the column default used by direct REST inserts),
+-- `share` (the in-app share sheet) and `manual` (the diner's wishlist form).
 
 do $$
 begin
@@ -107,6 +112,7 @@ end;
 $$;
 
 alter table public.wishlist add column if not exists title text;
+alter table public.wishlist alter column title drop not null;
 alter table public.wishlist add column if not exists source text not null default 'manual';
 alter table public.wishlist add column if not exists rednote_url text;
 alter table public.wishlist add column if not exists cover_image text;
@@ -120,8 +126,9 @@ alter table public.wishlist
   add constraint wishlist_status_check check (status in ('pending_review', 'ready'));
 
 alter table public.wishlist drop constraint if exists wishlist_source_check;
+update public.wishlist set source = 'share' where source = 'rednote';
 alter table public.wishlist
-  add constraint wishlist_source_check check (source in ('manual', 'share'));
+  add constraint wishlist_source_check check (source in ('manual', 'share', 'rednote'));
 
 create index if not exists dishes_category_idx on public.dishes (category);
 create index if not exists dishes_active_idx on public.dishes (is_active);
