@@ -822,25 +822,27 @@ function DishFormInner({
       </section>
 
       <section className="mt-3 flex items-center gap-3 rounded-3xl border border-line bg-paper px-4 py-3 shadow-card">
-        <Toggle
-          checked={isActive}
-          onChange={setIsActive}
-          label="上架到点餐菜单"
-        />
         <div className="min-w-0 flex-1">
           <p className="text-[12px] font-bold text-ink">上架到点餐菜单</p>
           <p className="mt-0.5 text-[10px] leading-relaxed text-ink-soft">
             关闭后，这道菜只会留在菜谱本里，点餐员看不到。
           </p>
         </div>
-        <span
-          className={cn(
-            "shrink-0 text-[10.5px] font-semibold",
-            isActive ? "text-sage" : "text-ink-soft",
-          )}
-        >
-          {isActive ? "在售" : "已下架"}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className={cn(
+              "text-[10.5px] font-semibold",
+              isActive ? "text-sage" : "text-ink-soft",
+            )}
+          >
+            {isActive ? "在售" : "已下架"}
+          </span>
+          <Toggle
+            checked={isActive}
+            onChange={setIsActive}
+            label="上架到点餐菜单"
+          />
+        </div>
       </section>
 
       {dish ? (

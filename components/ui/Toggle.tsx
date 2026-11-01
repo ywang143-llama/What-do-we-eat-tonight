@@ -2,6 +2,11 @@
 
 import { cn } from "@/lib/utils";
 
+const TRACK_HEIGHT = 24;
+const TRACK_WIDTH = 44;
+const KNOB_SIZE = 20;
+const INSET = 2;
+
 interface ToggleProps {
   checked: boolean;
   onChange: (next: boolean) => void;
@@ -9,6 +14,14 @@ interface ToggleProps {
   disabled?: boolean;
 }
 
+/**
+ * iOS-style switch.
+ *
+ * The knob is positioned with an explicit `left` value instead of Tailwind's
+ * `translate-x-[…]` utility: that utility relies on the CSS `translate`
+ * property (registered custom properties), which older iOS Safari ignores —
+ * leaving the knob stuck on the left even when the switch is on.
+ */
 export function Toggle({ checked, onChange, label, disabled }: ToggleProps) {
   return (
     <button
@@ -22,15 +35,21 @@ export function Toggle({ checked, onChange, label, disabled }: ToggleProps) {
     >
       <span
         className={cn(
-          "relative h-6 w-11 rounded-full transition-colors duration-200",
+          "relative block rounded-full transition-colors duration-200",
           checked ? "bg-sage" : "bg-line",
         )}
+        style={{ width: TRACK_WIDTH, height: TRACK_HEIGHT }}
       >
         <span
-          className={cn(
-            "absolute top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform duration-200",
-            checked ? "translate-x-[22px]" : "translate-x-0.5",
-          )}
+          aria-hidden
+          className="absolute rounded-full bg-white shadow-sm"
+          style={{
+            width: KNOB_SIZE,
+            height: KNOB_SIZE,
+            top: (TRACK_HEIGHT - KNOB_SIZE) / 2,
+            left: checked ? TRACK_WIDTH - KNOB_SIZE - INSET : INSET,
+            transition: "left 200ms ease",
+          }}
         />
       </span>
     </button>
