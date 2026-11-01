@@ -82,3 +82,13 @@ the project uses [Conventional Commits](https://www.conventionalcommits.org/).
 - `supabase/schema.sql` now drops `not null` on `wishlist.title` for existing
   projects and allows `rednote` in the source check, so shortcut inserts stop
   failing on a freshly re-run schema.
+- **Wish → dish form lost the source link** — `DishForm` now seeds 外部菜谱链接
+  from `wish.rednote_url` (and the cover from `wish.cover_image`), so publishing
+  from 用完整表单做成这道菜 keeps the original note attached to the dish.
+- **AI assist was only in the review sheet** — the full dish form now has an
+  **AI 帮忙整理菜谱 / 自动填写菜名和做法** panel (visible when a wish or a recipe
+  link is present) and 心愿收件箱 cards gained a 用完整表单做成这道菜 link.
+  Publishing from the form goes through `completeWish`, so the wish keeps its
+  link/ingredients and is marked `ready` in one step.
+- Added `data-scroll-behavior="smooth"` to `<html>` to silence the Next.js
+  smooth-scroll transition warning.

@@ -199,6 +199,7 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 - Mark all served, finish the night (order → completed).
 - Add/edit dishes: category, calories, emoji, photo, recipe steps, external link, active toggle.
 - Approve wishes by converting them into dishes.
+- Shared links live in 心愿收件箱: **整理菜谱** opens the review sheet (link autofill + AI), **用完整表单做成这道菜** opens `DishForm` with `rednote_url` prefilled into 外部菜谱链接 and its own AI panel. Both publish through `completeWish`.
 - Chef nav: 订单 · 菜品 · 心愿 · 回顾.
 
 **Role is not access control.** Any role can open any route directly; copy may adapt (e.g. the menu says "大厨也在挑菜"). Do not add hard redirects without checking the role-switch flow and the two-person UX.

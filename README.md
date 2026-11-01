@@ -296,24 +296,16 @@ Notes:
 - `source` is left to the column default. Any pending row that carries a `rednote_url` shows up in 心愿收件箱, regardless of its `source`.
 - The partial unique index allows only **one pending inbox item per URL**, so posting the same note twice returns `409` — safe to ignore in the Shortcut.
 
-### Build the Shortcut (iPhone)
+### iPhone setup
 
-1. Open **Shortcuts** → **+** and name it `收藏到今晚吃什么`.
-2. Add **Get Clipboard**.
-3. (Recommended) Add **Get URLs from Input** with the clipboard as input, so non-links are rejected.
-4. Add **Get Contents of URL**:
-   - URL: `https://rcqvaxjpuanzpzgxgfgy.supabase.co/rest/v1/wishlist`
-   - Method: **POST**
-   - Headers: the four rows above (`apikey`, `Authorization`, `Content-Type`, `Prefer`).
-   - Request Body: **JSON** with `{"rednote_url": <URLs>, "status": "pending_review"}`, inserting the **URLs** magic variable from step 3 (or **Clipboard** directly).
-5. (Optional) Add **Show Notification** → `已送进心愿收件箱`.
-6. Test it: copy a RedNote link → run the Shortcut → open the app → **心愿 → 心愿收件箱**.
+1. Create a new Shortcut named **Add to Kitchen** (Shortcuts → **+** → name it).
+2. **Action 1** — *Get URLs from* **[Clipboard]**.
+3. **Action 2** — *Get contents of* **[URL]** (the magic variable from Action 1), configured with the POST request above: method **POST**, the four headers, and the JSON body `{"rednote_url": <URL>, "status": "pending_review"}`.
+4. Open 设置 → 辅助功能 → 触控 → 轻点背面 → 轻点两下 → choose **Add to Kitchen**.
 
-### Trigger it with Back Tap or the Action Button
+**Usage:** inside RedNote tap **分享 → 复制链接**, then double-tap the back of the iPhone. Open the app → **心愿 → 心愿收件箱** and the link is waiting.
 
-- **Back Tap** (iPhone 8 and later): 设置 → 辅助功能 → 触控 → 轻点背面 → 轻点两下 → pick `收藏到今晚吃什么`.
-- **Action Button** (iPhone 15 Pro and later): 设置 → 操作按钮 → 快捷指令 → `收藏到今晚吃什么`.
-- Daily flow: RedNote → **分享 → 复制链接** → double-tap the back of the phone → it is waiting in 心愿收件箱.
+> Optional: add **Show Notification** (`已送进心愿收件箱`) after Action 2 so the Shortcut confirms itself.
 
 ### Security & limits
 
@@ -339,6 +331,7 @@ A wish is either `manual` (written on the diner's 心愿 page) or `share` (sent 
 
 - **Manual wishes** appear under 待实现. The chef taps **做成这道菜**; the dish form opens prefilled and saving creates the dish.
 - **Shared wishes** appear in 心愿收件箱 with **查看原笔记** and **整理菜谱**. Rows that only carry a `rednote_url` (iOS Shortcut) show the fallback title 小红书收藏的菜 until reviewed. The review sheet reads the link preview (`GET /api/link-meta`), fills title/note/cover, can auto-fill ingredients, category, calories and steps with AI, and saving creates the dish, stores the reviewed ingredients/calories/cover on the wish and marks it `ready`.
+- **用完整表单做成这道菜** opens the regular dish form for the same wish. The saved `rednote_url` is carried into 外部菜谱链接 automatically and the form has its own AI panel, so the link is never lost when you publish from there.
 
 Either way the wish becomes `ready` with a link to the new dish, and the diner sees 大厨已经学会啦.
 
