@@ -280,6 +280,13 @@ function DishRow({
         </p>
       </div>
 
+      <Toggle
+        checked={dish.is_active}
+        onChange={(next) => void handleToggle(next)}
+        label={`${dish.name}${dish.is_active ? "下架" : "上架"}`}
+        disabled={busy}
+      />
+
       <Link
         href={`/chef/menu/${dish.id}`}
         aria-label={`编辑${dish.name}`}
@@ -287,13 +294,6 @@ function DishRow({
       >
         <Pencil className="size-3.5" />
       </Link>
-
-      <Toggle
-        checked={dish.is_active}
-        onChange={(next) => void handleToggle(next)}
-        label={`${dish.name}${dish.is_active ? "下架" : "上架"}`}
-        disabled={busy}
-      />
     </li>
   );
 }
