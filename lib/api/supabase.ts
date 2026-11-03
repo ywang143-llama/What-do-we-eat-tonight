@@ -27,7 +27,13 @@ function explain(message: string): string {
     return "Supabase 存储桶 dish-images 还没创建，请重新运行 schema.sql";
   }
   if (/anonymous sign-ins are disabled/i.test(message)) {
-    return "Supabase 匿名登录未开启（不影响点餐，可在 Authentication 中开启）";
+    return "Supabase 的匿名登录还没开启，请到 Authentication → Providers 打开 Anonymous sign-ins";
+  }
+  if (/kitchen_members|kitchen_access|redeem_kitchen_code/i.test(message)) {
+    return "访问码功能还没创建，请重新运行 supabase/schema.sql";
+  }
+  if (/row-level security|permission denied/i.test(message)) {
+    return "解锁后才能修改，先输入访问码吧";
   }
   if (/wishlist_rednote_pending_idx/i.test(message)) {
     return "这条笔记已经在心愿收件箱里啦";
@@ -37,31 +43,6 @@ function explain(message: string): string {
 
 function fail(error: { message: string } | null, fallback: string): never {
   throw new Error(explain(error?.message || fallback));
-}
-
-let sessionPromise: Promise<void> | null = null;
-
-/**
- * Give every visitor an anonymous Supabase session. This keeps storage and
- * table access authenticated, and can later be upgraded to real auth.
- * If anonymous sign-ins are disabled in the dashboard, we simply continue.
- */
-function ensureSession(): Promise<void> {
-  if (!supabase) return Promise.resolve();
-  if (!sessionPromise) {
-    sessionPromise = (async () => {
-      try {
-        const { data } = await supabase.auth.getSession();
-        if (!data.session) {
-          const { error } = await supabase.auth.signInAnonymously();
-          if (error) console.warn("匿名登录未启用：", error.message);
-        }
-      } catch (error) {
-        console.warn("匿名登录失败：", error);
-      }
-    })();
-  }
-  return sessionPromise;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -159,7 +140,6 @@ export const supabaseApi: KitchenApi = {
   mode: "supabase",
 
   async load() {
-    await ensureSession();
     const db = client();
 
     const [dishResult, orderResult, wishResult, ratingResult] = await Promise.all([

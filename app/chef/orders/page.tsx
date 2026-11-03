@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { RoleGate } from "@/components/auth/RoleGate";
 import { useKitchen } from "@/components/providers/KitchenProvider";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -52,6 +53,7 @@ export default function ChefOrdersPage() {
     markAllServed,
     completeOrder,
     notify,
+    canEdit,
   } = useKitchen();
   const [confirming, setConfirming] = useState(false);
   const [completing, setCompleting] = useState(false);
@@ -101,6 +103,8 @@ export default function ChefOrdersPage() {
     setCompleting(false);
     if (ok) setConfirming(false);
   };
+
+  if (!canEdit) return <RoleGate />;
 
   if (!ready) return <PageLoading label="正在系围裙…" />;
 

@@ -9,10 +9,14 @@ import {
   Database,
   HardDrive,
   Info,
+  KeyRound,
   Link2,
+  LockKeyhole,
   RotateCcw,
   Settings2,
+  ShieldCheck,
   Sparkles,
+  Unlock,
   UtensilsCrossed,
 } from "lucide-react";
 import { useState } from "react";
@@ -24,7 +28,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PageIntro } from "@/components/ui/PageIntro";
 import type { Role } from "@/lib/types";
 import { useDocumentTitle } from "@/lib/use-document-title";
-import { cn } from "@/lib/utils";
+import { cn, errorMessage } from "@/lib/utils";
 
 const ROLE_OPTIONS: Array<{
   id: Role;
@@ -39,8 +43,20 @@ const ROLE_OPTIONS: Array<{
 export default function SettingsPage() {
   useDocumentTitle("设置");
   const router = useRouter();
-  const { role, setRole, mode, notify, resetDemoData, busy } = useKitchen();
+  const {
+    role,
+    setRole,
+    mode,
+    notify,
+    resetDemoData,
+    busy,
+    authReady,
+    authError,
+    isUnlocked,
+    lockKitchen,
+  } = useKitchen();
   const [confirmReset, setConfirmReset] = useState(false);
+  const [locking, setLocking] = useState(false);
 
   const chooseRole = (nextRole: Role) => {
     setRole(nextRole);
@@ -53,62 +69,162 @@ export default function SettingsPage() {
     if (ok) setConfirmReset(false);
   };
 
+  const handleLock = async () => {
+    setLocking(true);
+    try {
+      await lockKitchen();
+      notify("已经锁定这台设备", "info");
+      router.push("/login");
+    } catch (lockError) {
+      notify(errorMessage(lockError), "error");
+    } finally {
+      setLocking(false);
+    }
+  };
+
   return (
     <div className="pb-4">
       <PageIntro
         eyebrow="两个人的小厨房"
         title="设置"
-        description="换身份、看连接状态，或者把厨房装进手机。"
+        description={
+          mode === "supabase"
+            ? "访问码、身份和连接状态都在这里。"
+            : "换身份、看连接状态，或者把厨房装进手机。"
+        }
       />
 
       <section className="mt-5 rounded-4xl border border-line bg-paper p-4 shadow-card">
         <div className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-xl bg-cream-deep text-terracotta">
-            <Settings2 className="size-4" />
+          <span
+            className={cn(
+              "grid size-8 place-items-center rounded-xl",
+              mode === "supabase"
+                ? "bg-sage-soft text-[#58704B]"
+                : "bg-cream-deep text-terracotta",
+            )}
+          >
+            {mode === "supabase" ? (
+              <KeyRound className="size-4" />
+            ) : (
+              <HardDrive className="size-4" />
+            )}
           </span>
           <div>
-            <h2 className="text-[13px] font-bold text-ink">当前身份</h2>
-            <p className="text-[10px] text-ink-soft">随时可以切换</p>
+            <h2 className="text-[13px] font-bold text-ink">访问码</h2>
+            <p className="text-[10px] text-ink-soft">
+              {mode === "supabase"
+                ? "云端厨房 · 一个码两个人用"
+                : "本机演示 · 不需要访问码"}
+            </p>
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {ROLE_OPTIONS.map((option) => {
-            const active = role === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => chooseRole(option.id)}
-                aria-pressed={active}
-                className={cn(
-                  "rounded-2xl border p-3 text-left transition active:scale-[0.97]",
-                  active
-                    ? "border-terracotta/40 bg-[#FBF0E0] shadow-sm"
-                    : "border-line bg-cream/40",
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[22px]">{option.emoji}</span>
-                  {active ? (
-                    <span className="rounded-full bg-terracotta px-2 py-0.5 text-[8.5px] font-bold text-white">
-                      当前
-                    </span>
-                  ) : (
-                    <ArrowRight className="size-3.5 text-ink-soft/50" />
-                  )}
-                </div>
-                <p className="mt-2 text-[12.5px] font-bold text-ink">
-                  {option.label}
-                </p>
-                <p className="mt-0.5 text-[9.5px] leading-relaxed text-ink-soft">
-                  {option.hint}
-                </p>
-              </button>
-            );
-          })}
-        </div>
+        {mode === "local" ? (
+          <p className="mt-3 text-[11px] leading-relaxed text-ink-soft">
+            现在用的是这台设备的演示厨房，身份切换只影响这台浏览器。连接 Supabase
+            后，就可以设置一个访问码，并让两个人的手机实时同步。
+          </p>
+        ) : !authReady ? (
+          <p className="mt-3 text-[11px] text-ink-soft">正在准备厨房…</p>
+        ) : isUnlocked ? (
+          <>
+            <div className="mt-3 rounded-2xl bg-cream/70 p-3">
+              <p className="text-[9.5px] font-semibold text-ink-soft">已解锁</p>
+              <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] font-bold text-ink">
+                <ShieldCheck className="size-4 text-[#58704B]" />
+                这台设备已经解锁
+              </p>
+              <p className="mt-1 text-[10px] leading-relaxed text-ink-soft">
+                访问码会记在这台设备上。锁定后需要重新输入。
+              </p>
+            </div>
+            {authError ? (
+              <p className="mt-2 rounded-xl bg-[#FBE9E3] px-3 py-2 text-[10px] leading-relaxed text-[#9A4530]">
+                {authError}
+              </p>
+            ) : null}
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mt-3 w-full"
+              loading={locking}
+              onClick={() => void handleLock()}
+            >
+              <LockKeyhole className="size-3.5" />
+              锁定这台设备
+            </Button>
+          </>
+        ) : (
+          <>
+            <p className="mt-3 text-[11px] leading-relaxed text-ink-soft">
+              还没有解锁，现在只能只读浏览云端菜单和心愿。输入访问码后就能点菜、写心愿和管理菜单。
+            </p>
+            {authError ? (
+              <p className="mt-2 rounded-xl bg-[#FBE9E3] px-3 py-2 text-[10px] leading-relaxed text-[#9A4530]">
+                {authError}
+              </p>
+            ) : null}
+            <Link href="/login" className="mt-3 block">
+              <Button size="sm" className="w-full">
+                <Unlock className="size-3.5" />
+                输入访问码
+              </Button>
+            </Link>
+          </>
+        )}
       </section>
+
+      {mode === "local" || isUnlocked ? (
+        <section className="mt-3 rounded-4xl border border-line bg-paper p-4 shadow-card">
+          <div className="flex items-center gap-2">
+            <span className="grid size-8 place-items-center rounded-xl bg-cream-deep text-terracotta">
+              <Settings2 className="size-4" />
+            </span>
+            <div>
+              <h2 className="text-[13px] font-bold text-ink">当前身份</h2>
+              <p className="text-[10px] text-ink-soft">随时可以切换</p>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {ROLE_OPTIONS.map((option) => {
+              const active = role === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => chooseRole(option.id)}
+                  aria-pressed={active}
+                  className={cn(
+                    "rounded-2xl border p-3 text-left transition active:scale-[0.97]",
+                    active
+                      ? "border-terracotta/40 bg-[#FBF0E0] shadow-sm"
+                      : "border-line bg-cream/40",
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[22px]">{option.emoji}</span>
+                    {active ? (
+                      <span className="rounded-full bg-terracotta px-2 py-0.5 text-[8.5px] font-bold text-white">
+                        当前
+                      </span>
+                    ) : (
+                      <ArrowRight className="size-3.5 text-ink-soft/50" />
+                    )}
+                  </div>
+                  <p className="mt-2 text-[12.5px] font-bold text-ink">
+                    {option.label}
+                  </p>
+                  <p className="mt-0.5 text-[9.5px] leading-relaxed text-ink-soft">
+                    {option.hint}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="mt-3 rounded-4xl border border-line bg-paper p-4 shadow-card">
         <div className="flex items-center gap-2">
@@ -184,7 +300,7 @@ export default function SettingsPage() {
         ) : (
           <p className="mt-3 text-[11px] leading-relaxed text-ink-soft">
             菜单、订单和心愿会在两台手机之间实时同步。图片保存在 Supabase Storage 的
-            dish-images 桶里。
+            dish-images 桶里。未解锁时只能只读浏览，解锁后才能修改。
           </p>
         )}
       </section>

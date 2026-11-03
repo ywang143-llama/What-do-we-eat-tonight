@@ -52,6 +52,8 @@ export default function OrderPage() {
     submitOrder,
     saveOrderNote,
     role,
+    canOrder,
+    isReadOnly,
   } = useKitchen();
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -89,7 +91,7 @@ export default function OrderPage() {
   const noteDirty = note !== (order?.note ?? "");
 
   const handleSubmit = async () => {
-    if (!order || submitting) return;
+    if (!order || submitting || !canOrder) return;
     setSubmitting(true);
     if (noteDirty) await saveOrderNote(order.id, note);
     const ok = await submitOrder(order.id);
@@ -105,13 +107,21 @@ export default function OrderPage() {
         <PageIntro
           eyebrow={formatDateFriendly(today)}
           title="今晚菜单"
-          description="选几道想吃的，今晚的晚饭就定下来了。"
+          description={
+            isReadOnly
+              ? "现在可以只读查看今晚菜单，解锁后才能点菜。"
+              : "选几道想吃的，今晚的晚饭就定下来了。"
+          }
         />
         <div className="mt-8">
           <EmptyState
             emoji="🥢"
             title="今晚还没有点菜"
-            description="去菜单里逛逛吧，挑中了的菜会先放在这里，提交给大厨之前都可以改。"
+            description={
+              isReadOnly
+                ? "去菜单里逛逛吧。解锁后就能把想吃的加进来。"
+                : "去菜单里逛逛吧，挑中了的菜会先放在这里，提交给大厨之前都可以改。"
+            }
             action={
               <Link href="/menu" className="inline-flex">
                 <Button>
@@ -131,21 +141,31 @@ export default function OrderPage() {
   const isCompleted = order.status === "completed";
 
   return (
-    <div className={cn(isDraft && items.length ? "pb-16" : "pb-2")}>
+    <div
+      className={cn(
+        isDraft && items.length && canOrder ? "pb-16" : "pb-2",
+      )}
+    >
       <PageIntro
         eyebrow={formatDateFriendly(order.order_date)}
         title="今晚菜单"
         description={
-          isDraft
-            ? "确认好菜品和备注，再一起交给大厨。"
-            : isSubmitted
-              ? "菜单已经送到大厨手里，今晚有口福啦。"
-              : "这顿饭吃完了，去回顾里留下一点记录吧。"
+          isReadOnly
+            ? "现在可以只读查看今晚菜单，解锁后才能修改。"
+            : isDraft
+              ? "确认好菜品和备注，再一起交给大厨。"
+              : isSubmitted
+                ? "菜单已经送到大厨手里，今晚有口福啦。"
+                : "这顿饭吃完了，去回顾里留下一点记录吧。"
         }
         action={
           <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1.5 text-[11px] font-semibold text-ink-soft">
             <ChefHat className="size-3.5 text-terracotta" />
-            {role === "chef" ? "大厨查看" : "点餐员"}
+            {!canOrder
+              ? "只读"
+              : role === "chef"
+                ? "大厨查看"
+                : "点餐员"}
           </span>
         }
       />
@@ -192,7 +212,7 @@ export default function OrderPage() {
               {items.length} 道
             </span>
           </h2>
-          {isSubmitted ? (
+          {isSubmitted && canOrder ? (
             <Link
               href="/menu"
               className="flex items-center gap-1 text-[11px] font-semibold text-terracotta"
@@ -234,7 +254,7 @@ export default function OrderPage() {
                       {formatCalories(dish.calories)}
                     </p>
                   </div>
-                  {isDraft ? (
+                  {isDraft && canOrder ? (
                     <button
                       type="button"
                       onClick={() => void removeOrderItem(item.id)}
@@ -254,7 +274,7 @@ export default function OrderPage() {
           </div>
         )}
 
-        {isDraft && items.length ? (
+        {isDraft && items.length && canOrder ? (
           <div className="border-t border-line/60 p-3">
             <Link
               href="/menu"
@@ -308,23 +328,32 @@ export default function OrderPage() {
           id="order-note"
           value={note}
           onChange={(event) => setNote(event.target.value)}
+          readOnly={!canOrder}
           onBlur={() => {
-            if (noteDirty && !isCompleted) void saveOrderNote(order.id, note);
+            if (canOrder && noteDirty && !isCompleted) {
+              void saveOrderNote(order.id, note);
+            }
           }}
           rows={3}
           maxLength={200}
-          placeholder="比如：少放一点盐，想吃辣一点～"
-          className="mt-2.5 w-full resize-none rounded-2xl border border-line bg-cream/50 px-3.5 py-3 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-soft/45 focus:border-terracotta/60 focus:ring-2 focus:ring-terracotta/10"
+          placeholder={
+            canOrder ? "比如：少放一点盐，想吃辣一点～" : "解锁后才能写备注"
+          }
+          className="mt-2.5 w-full resize-none rounded-2xl border border-line bg-cream/50 px-3.5 py-3 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-soft/45 read-only:bg-cream/30 focus:border-terracotta/60 focus:ring-2 focus:ring-terracotta/10"
         />
         <div className="mt-1.5 flex items-center justify-between px-0.5">
           <span className="text-[10px] text-ink-soft/70">
-            {noteDirty ? "离开输入框会自动保存" : "备注已保存"}
+            {!canOrder
+              ? "只读模式"
+              : noteDirty
+                ? "离开输入框会自动保存"
+                : "备注已保存"}
           </span>
           <span className="text-[10px] text-ink-soft/60">{note.length}/200</span>
         </div>
       </section>
 
-      {isDraft && items.length ? (
+      {isDraft && items.length && canOrder ? (
         <div className="pointer-events-none fixed inset-x-0 above-nav z-30 bg-gradient-to-t from-cream via-cream/95 to-transparent px-4 pt-6">
           <div className="pointer-events-auto mx-auto w-full max-w-[448px]">
             <Button

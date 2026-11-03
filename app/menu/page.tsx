@@ -18,7 +18,16 @@ type Filter = Category | "all";
 
 export default function MenuPage() {
   useDocumentTitle("点餐");
-  const { ready, dishes, tonight, getDish, addToOrder, role } = useKitchen();
+  const {
+    ready,
+    dishes,
+    tonight,
+    getDish,
+    addToOrder,
+    role,
+    canOrder,
+    isReadOnly,
+  } = useKitchen();
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
 
@@ -84,7 +93,11 @@ export default function MenuPage() {
       <PageIntro
         eyebrow={role === "chef" ? "大厨也在挑菜" : "点餐员 · 今晚的厨房"}
         title="今天想吃点什么？"
-        description="挑几道想吃的，今晚的菜单就交给你啦。"
+        description={
+          isReadOnly
+            ? "现在可以只读浏览菜单，解锁后就能把菜加进今晚。"
+            : "挑几道想吃的，今晚的菜单就交给你啦。"
+        }
       />
 
       <div className="mt-5 space-y-3">
@@ -169,7 +182,7 @@ export default function MenuPage() {
         </div>
       )}
 
-      {tonight && tonight.items.length > 0 ? (
+      {canOrder && tonight && tonight.items.length > 0 ? (
         <div className="pointer-events-none fixed inset-x-0 above-nav z-30 px-4">
           <div className="mx-auto w-full max-w-[448px]">
             <Link

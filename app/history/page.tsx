@@ -30,8 +30,16 @@ import {
 
 export default function HistoryPage() {
   useDocumentTitle("晚饭回顾");
-  const { ready, pastOrders, ratings, getDish, getRating, saveRating } =
-    useKitchen();
+  const {
+    ready,
+    pastOrders,
+    ratings,
+    getDish,
+    getRating,
+    saveRating,
+    canOrder,
+    isReadOnly,
+  } = useKitchen();
 
   const stats = useMemo(() => {
     const average = averageRating(ratings.map((rating) => rating.rating));
@@ -54,7 +62,11 @@ export default function HistoryPage() {
       <PageIntro
         eyebrow="两个人 · 一起吃过的"
         title="晚饭回顾"
-        description="每顿饭都值得被记住，也值得被夸一夸。"
+        description={
+          isReadOnly
+            ? "现在可以只读翻看一起吃过的晚饭，解锁后就能打分。"
+            : "每顿饭都值得被记住，也值得被夸一夸。"
+        }
       />
 
       <section className="mt-5 grid grid-cols-3 gap-2 overflow-hidden rounded-4xl bg-gradient-to-br from-[#F8E8D0] via-[#F4D9B3] to-[#EFCB99] p-4 shadow-card">
@@ -87,6 +99,7 @@ export default function HistoryPage() {
               getDish={getDish}
               getRating={getRating}
               saveRating={saveRating}
+              canRate={canOrder}
             />
           ))}
         </div>
@@ -140,11 +153,13 @@ function OrderReviewCard({
   getDish,
   getRating,
   saveRating,
+  canRate,
 }: {
   order: Order;
   getDish: (id: string) => Dish | null;
   getRating: (orderId: string, dishId: string) => Rating | null;
   saveRating: ReturnType<typeof useKitchen>["saveRating"];
+  canRate: boolean;
 }) {
   const items = order.items
     .map((item) => ({ item, dish: getDish(item.dish_id) }))
@@ -216,6 +231,7 @@ function OrderReviewCard({
                 dish={dish}
                 rating={getRating(order.id, dish.id)}
                 saveRating={saveRating}
+                canRate={canRate}
               />
             </li>
           );
@@ -230,11 +246,13 @@ function ReviewRow({
   dish,
   rating,
   saveRating,
+  canRate,
 }: {
   orderId: string;
   dish: Dish;
   rating: Rating | null;
   saveRating: ReturnType<typeof useKitchen>["saveRating"];
+  canRate: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [draftRating, setDraftRating] = useState(rating?.rating ?? 0);
@@ -242,13 +260,14 @@ function ReviewRow({
   const [saving, setSaving] = useState(false);
 
   const startEditing = (value?: number) => {
+    if (!canRate) return;
     setDraftRating(value ?? rating?.rating ?? 0);
     setComment(rating?.comment ?? "");
     setOpen(true);
   };
 
   const handleSave = async () => {
-    if (!draftRating || saving) return;
+    if (!canRate || !draftRating || saving) return;
     setSaving(true);
     const ok = await saveRating({
       orderId,
@@ -259,6 +278,18 @@ function ReviewRow({
     setSaving(false);
     if (ok) setOpen(false);
   };
+
+  if (!canRate) {
+    if (!rating) return null;
+    return (
+      <div className="mt-2.5 flex items-start gap-2 pl-0.5">
+        <RatingStars value={rating.rating} size="sm" className="mt-0.5" />
+        <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-ink-soft">
+          {rating.comment || "只留下了一串星星"}
+        </p>
+      </div>
+    );
+  }
 
   if (!open && rating) {
     return (

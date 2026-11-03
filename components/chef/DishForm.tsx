@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
+import { RoleGate } from "@/components/auth/RoleGate";
 import { useKitchen } from "@/components/providers/KitchenProvider";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -45,11 +46,13 @@ export function DishForm({
   dishId?: string;
   wishlistId?: string;
 }) {
-  const { ready, getDish, wishlist } = useKitchen();
+  const { ready, getDish, wishlist, canEdit } = useKitchen();
   const dish = dishId ? getDish(dishId) : null;
   const wish = wishlistId
     ? wishlist.find((item) => item.id === wishlistId) ?? null
     : null;
+
+  if (!canEdit) return <RoleGate />;
 
   if (!ready) return <PageLoading label="正在翻开菜谱本…" />;
 
@@ -110,6 +113,7 @@ function DishFormInner({
     uploadImage,
     notify,
     mode,
+    canEdit,
   } = useKitchen();
   const editing = Boolean(dish);
 
@@ -437,7 +441,8 @@ function DishFormInner({
         </div>
       ) : null}
 
-      <section className="mt-4 rounded-3xl border border-[#EAD8BF] bg-[#FBF1E1] p-3.5">
+      {canEdit ? (
+        <section className="mt-4 rounded-3xl border border-[#EAD8BF] bg-[#FBF1E1] p-3.5">
         <div className="flex items-center gap-1.5">
           <Sparkles className="size-3.5 text-amber" />
           <h2 className="text-[12px] font-bold text-[#7E5B31]">
@@ -508,7 +513,8 @@ function DishFormInner({
             {aiHint}
           </p>
         ) : null}
-      </section>
+        </section>
+      ) : null}
 
       <section className="mt-5 rounded-4xl border border-line bg-paper p-4 shadow-card">
         <h2 className="text-[12.5px] font-bold text-ink">基本信息</h2>
@@ -845,7 +851,7 @@ function DishFormInner({
         </div>
       </section>
 
-      {dish ? (
+      {canEdit && dish ? (
         <section className="mt-3 flex items-center gap-3 rounded-3xl border border-[#F0D8D0] bg-[#FDF3F0] px-4 py-3">
           <div className="min-w-0 flex-1">
             <p className="text-[12px] font-bold text-[#8F4231]">删除这道菜</p>

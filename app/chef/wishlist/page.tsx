@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { RoleGate } from "@/components/auth/RoleGate";
 import { WishReviewModal } from "@/components/chef/WishReviewModal";
 import { useKitchen } from "@/components/providers/KitchenProvider";
 import { Button } from "@/components/ui/Button";
@@ -28,7 +29,7 @@ import { isInboxWish, isManualWish, wishTitle } from "@/lib/wish";
 
 export default function ChefWishlistPage() {
   useDocumentTitle("心愿审批");
-  const { ready, wishlist, getDish, deleteWish } = useKitchen();
+  const { ready, wishlist, getDish, deleteWish, canEdit } = useKitchen();
   const [pendingDelete, setPendingDelete] = useState<Wish | null>(null);
   const [reviewing, setReviewing] = useState<Wish | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -68,6 +69,8 @@ export default function ChefWishlistPage() {
     setDeleting(false);
     if (ok) setPendingDelete(null);
   };
+
+  if (!canEdit) return <RoleGate />;
 
   if (!ready) return <PageLoading label="正在看看点餐员的心愿…" />;
 

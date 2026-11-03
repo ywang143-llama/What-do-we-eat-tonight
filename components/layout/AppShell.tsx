@@ -7,6 +7,7 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { DataErrorBanner } from "@/components/layout/DataErrorBanner";
 import { Header } from "@/components/layout/Header";
 import { OfflineBanner } from "@/components/layout/OfflineBanner";
+import { ReadOnlyBanner } from "@/components/layout/ReadOnlyBanner";
 import { Toaster } from "@/components/layout/Toaster";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <OfflineBanner />
       {!isLanding ? <Header /> : null}
       <DataErrorBanner />
+      <ReadOnlyBanner />
       <main
         className={cn(
           "flex-1",

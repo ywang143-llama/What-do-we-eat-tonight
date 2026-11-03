@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   BookmarkPlus,
   CheckCircle2,
   ExternalLink,
   Loader2,
+  LogIn,
   RotateCcw,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -20,14 +21,23 @@ import { useDocumentTitle } from "@/lib/use-document-title";
 
 export function ImportClient() {
   useDocumentTitle("收藏这道菜");
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { ready, addSharedWish } = useKitchen();
+  const {
+    ready,
+    authReady,
+    mode,
+    isUnlocked,
+    canEdit,
+    addSharedWish,
+  } = useKitchen();
 
   const parsed = useMemo(() => parseSharedWish(searchParams), [searchParams]);
   const started = useRef(false);
-  const [status, setStatus] = useState<"working" | "saved" | "failed" | "empty">(
-    parsed.ok ? "working" : "empty",
-  );
+  const [status, setStatus] = useState<
+    "idle" | "working" | "saved" | "failed" | "empty" | "login"
+  >("idle");
+  const loginNext = `${pathname}?${searchParams.toString()}`;
 
   const save = useCallback(async () => {
     if (!parsed.ok) return;
@@ -41,10 +51,22 @@ export function ImportClient() {
   }, [addSharedWish, parsed]);
 
   useEffect(() => {
-    if (!ready || started.current) return;
+    if (!ready || !authReady) return;
+
+    if (!parsed.ok) {
+      setStatus("empty");
+      return;
+    }
+
+    if (mode === "supabase" && !canEdit) {
+      setStatus("login");
+      return;
+    }
+
+    if (started.current) return;
     started.current = true;
     void save();
-  }, [ready, save]);
+  }, [authReady, canEdit, mode, parsed, ready, save]);
 
   return (
     <div>
@@ -55,7 +77,7 @@ export function ImportClient() {
       />
 
       <section className="mt-5 animate-rise rounded-4xl border border-line bg-paper p-5 shadow-card">
-        {status === "working" ? (
+        {status === "idle" || status === "working" ? (
           <div className="flex flex-col items-center py-6 text-center">
             <Loader2 className="size-7 animate-spin text-terracotta" />
             <p className="mt-3 text-[13px] font-semibold text-ink">
@@ -132,6 +154,59 @@ export function ImportClient() {
               <Link href="/chef/wishlist" className="flex-1">
                 <Button size="md" variant="secondary" className="w-full">
                   看看收件箱
+                </Button>
+              </Link>
+            </div>
+          </div>
+        ) : null}
+
+        {status === "login" ? (
+          <div className="text-center">
+            <span className="mx-auto grid size-14 place-items-center rounded-full bg-[#FCF1DE] text-[24px]">
+              🔐
+            </span>
+            <h2 className="mt-3 text-[16px] font-bold text-ink">
+              {isUnlocked ? "这里是大厨的收件箱" : "解锁后才能收藏"}
+            </h2>
+            <p className="mt-1 text-[12px] leading-relaxed text-ink-soft">
+              {isUnlocked
+                ? "点餐员可以浏览菜单、点菜和写心愿。小红书菜谱请切换到大厨身份后再收进来。"
+                : "现在可以只读浏览云端厨房。输入访问码后再分享一次，这条菜谱就会躺进心愿收件箱。"}
+            </p>
+
+            {parsed.ok ? (
+              <div className="mt-4 rounded-2xl bg-cream/60 px-4 py-3 text-left">
+                <p className="flex items-center gap-1.5 text-[10px] font-semibold text-ink-soft">
+                  <BookmarkPlus className="size-3.5" />
+                  刚收到的内容
+                </p>
+                <p className="mt-1 text-[14px] font-bold text-ink">
+                  {parsed.draft.title ?? "小红书收藏的菜"}
+                </p>
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex gap-2.5">
+              {isUnlocked ? (
+                <Link href="/menu" className="flex-1">
+                  <Button size="md" className="w-full">
+                    去点菜
+                  </Button>
+                </Link>
+              ) : (
+                <Link
+                  href={`/login?next=${encodeURIComponent(loginNext)}`}
+                  className="flex-1"
+                >
+                  <Button size="md" className="w-full">
+                    <LogIn className="size-4" />
+                    去解锁
+                  </Button>
+                </Link>
+              )}
+              <Link href="/wishlist" className="flex-1">
+                <Button size="md" variant="secondary" className="w-full">
+                  看看心愿
                 </Button>
               </Link>
             </div>

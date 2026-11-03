@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { kitchenApi } from "@/lib/api";
+import { accessCodeErrorMessage, canManageRole } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import type {
   Dish,
@@ -52,8 +53,20 @@ interface KitchenContextValue {
   orders: Order[];
   ratings: Rating[];
   wishlist: Wish[];
+  /** Local UI mode: diner or chef. Not authorization. */
   role: Role | null;
   roleReady: boolean;
+  authReady: boolean;
+  /** Set when Supabase anonymous sign-in or the member table is unavailable. */
+  authError: string | null;
+  /** Cloud mode with a valid access code (always true in local demo mode). */
+  isUnlocked: boolean;
+  /** Cloud mode + no access code: browse only. */
+  isReadOnly: boolean;
+  /** Chef mode (or the fully-editable local demo). */
+  canEdit: boolean;
+  /** Unlocked kitchen (or the local demo). */
+  canOrder: boolean;
   tonight: Order | null;
   pastOrders: Order[];
   toasts: Toast[];
@@ -89,6 +102,8 @@ interface KitchenContextValue {
   saveRating: (input: RatingInput) => Promise<boolean>;
   uploadImage: (file: File) => Promise<string>;
   resetDemoData: () => Promise<boolean>;
+  unlockKitchen: (code: string) => Promise<boolean>;
+  lockKitchen: () => Promise<void>;
 }
 
 const KitchenContext = createContext<KitchenContextValue | null>(null);
@@ -104,6 +119,9 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [role, setRoleState] = useState<Role | null>(null);
   const [roleReady, setRoleReady] = useState(false);
+  const [authReady, setAuthReady] = useState(kitchenApi.mode === "local");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isUnlocked, setIsUnlocked] = useState(kitchenApi.mode === "local");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const loadedOnce = useRef(false);
 
@@ -153,7 +171,81 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
       // Private mode may block localStorage; the app still works for this visit.
     }
     setRoleReady(true);
+  }, []);
 
+  /**
+   * Every cloud visitor gets an anonymous Supabase session so the access-code
+   * RPC has an `auth.uid()` to remember. A row in `kitchen_members` means the
+   * code was already redeemed on this device.
+   */
+  const ensureAccess = useCallback(async () => {
+    if (!supabase) {
+      setAuthReady(true);
+      setIsUnlocked(true);
+      return;
+    }
+
+    const client = supabase;
+    try {
+      let {
+        data: { session },
+      } = await client.auth.getSession();
+
+      if (!session) {
+        const { error: signInError } = await client.auth.signInAnonymously();
+        if (signInError) {
+          setAuthError(accessCodeErrorMessage(signInError));
+          setIsUnlocked(false);
+          setAuthReady(true);
+          return;
+        }
+        const { data: refreshed } = await client.auth.getSession();
+        session = refreshed.session;
+      }
+
+      if (!session) {
+        setAuthError("没能建立访客会话，刷新一下再试");
+        setIsUnlocked(false);
+        setAuthReady(true);
+        return;
+      }
+
+      const { data, error: memberError } = await client
+        .from("kitchen_members")
+        .select("user_id")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
+      if (memberError) {
+        setAuthError(
+          /does not exist|schema cache/i.test(memberError.message)
+            ? "成员表还没创建，请重新运行 supabase/schema.sql"
+            : accessCodeErrorMessage(memberError),
+        );
+        setIsUnlocked(false);
+      } else {
+        setAuthError(null);
+        setIsUnlocked(Boolean(data));
+      }
+    } catch (accessError) {
+      setAuthError(accessCodeErrorMessage(accessError));
+      setIsUnlocked(false);
+    } finally {
+      setAuthReady(true);
+      void refreshSilently();
+    }
+  }, [refreshSilently]);
+
+  useEffect(() => {
+    if (kitchenApi.mode !== "supabase") {
+      setAuthReady(true);
+      setIsUnlocked(true);
+      return;
+    }
+    void ensureAccess();
+  }, [ensureAccess]);
+
+  useEffect(() => {
     void refresh();
   }, [refresh]);
 
@@ -213,6 +305,41 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
       // Ignore storage failures.
     }
   }, []);
+
+  const unlockKitchen = useCallback(
+    async (code: string) => {
+      if (!supabase) throw new Error("Supabase 还没有配置");
+      if (!authReady) throw new Error("厨房还在准备，稍等一下");
+      const trimmed = code.trim();
+      if (!trimmed) throw new Error("先输入访问码吧");
+
+      const { data, error: unlockError } = await supabase.rpc(
+        "redeem_kitchen_code",
+        { input_code: trimmed },
+      );
+
+      if (unlockError) throw new Error(accessCodeErrorMessage(unlockError));
+      if (!data) throw new Error("访问码不对，或者还没在 Supabase 里设置");
+
+      setIsUnlocked(true);
+      setAuthError(null);
+      await refreshSilently();
+      return true;
+    },
+    [authReady, refreshSilently],
+  );
+
+  const lockKitchen = useCallback(async () => {
+    if (!supabase) return;
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) throw new Error(accessCodeErrorMessage(signOutError));
+
+    setIsUnlocked(false);
+    setAuthError(null);
+    setAuthReady(false);
+    // A fresh anonymous user has no membership row, so the device is locked.
+    await ensureAccess();
+  }, [ensureAccess]);
 
   const run = useCallback(
     async (
@@ -410,9 +537,15 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
     [snapshot.ratings],
   );
 
+  const isReadOnly =
+    kitchenApi.mode === "supabase" && authReady && !isUnlocked;
+  const canOrder = kitchenApi.mode === "local" || isUnlocked;
+  const canEdit =
+    kitchenApi.mode === "local" || (isUnlocked && canManageRole(role));
+
   const value = useMemo<KitchenContextValue>(
     () => ({
-      ready,
+      ready: ready && authReady,
       busy: busyCount > 0,
       error,
       mode: kitchenApi.mode,
@@ -422,6 +555,12 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
       wishlist: snapshot.wishlist,
       role,
       roleReady,
+      authReady,
+      authError,
+      isUnlocked,
+      isReadOnly,
+      canEdit,
+      canOrder,
       tonight,
       pastOrders,
       toasts,
@@ -449,14 +588,22 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
       saveRating,
       uploadImage,
       resetDemoData,
+      unlockKitchen,
+      lockKitchen,
     }),
     [
       ready,
+      authReady,
       busyCount,
       error,
       snapshot,
       role,
       roleReady,
+      authError,
+      isUnlocked,
+      isReadOnly,
+      canEdit,
+      canOrder,
       tonight,
       pastOrders,
       toasts,
@@ -484,6 +631,8 @@ export function KitchenProvider({ children }: { children: ReactNode }) {
       saveRating,
       uploadImage,
       resetDemoData,
+      unlockKitchen,
+      lockKitchen,
     ],
   );
 
