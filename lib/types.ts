@@ -1,3 +1,8 @@
+/**
+ * The diner/chef switch is a local UI mode, not authorization. In cloud mode
+ * the shared access code unlocks writes; the role only decides which controls
+ * are shown on this device.
+ */
 export type Role = "diner" | "chef";
 
 export type Category = "staple" | "vegetable" | "meat" | "soup" | "snack";

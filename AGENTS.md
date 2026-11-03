@@ -18,7 +18,8 @@ Key product rules:
 
 - **All user-facing copy is Simplified Chinese.** Brand/proper nouns such as `Supabase` are fine.
 - The app must work immediately **without a backend**. When Supabase is not configured, it uses a fully seeded localStorage demo mode.
-- This is a **private two-person app**, not a multi-tenant product. There is no login screen; the role switch is a UI mode stored in the browser.
+- This is a **private two-person app**, not a multi-tenant product. Cloud mode uses **one shared access code** stored in `public.kitchen_access`; guests browse read-only until they unlock. Local demo mode has no access code.
+- The **diner/chef switch is a local UI mode**, not authorization. Cloud writes are gated by membership in `public.kitchen_members` (created when the access code is redeemed).
 - The **repository is public / open source**, so never commit secrets. Only `.env.example` with empty values belongs in git; docs and commit messages are English, UI copy stays Chinese.
 - The tone is warm, playful, and low-pressure. Avoid corporate or alarmist wording.
 
@@ -31,7 +32,7 @@ Key product rules:
 | Framework | Next.js `16.4.3`, App Router |
 | UI | React `19.3.1`, TypeScript `5.9`, Tailwind CSS `4.3.3` |
 | Icons | `lucide-react` (no emoji icon library) |
-| Backend | Supabase Postgres, Auth (optional anonymous), Storage, Realtime |
+| Backend | Supabase Postgres, anonymous Auth + shared access code, Storage, Realtime |
 | Database client | `@supabase/supabase-js` |
 | PWA | Custom `public/manifest.json` + `public/sw.js` |
 | Deployment | Vercel Hobby |
@@ -84,7 +85,8 @@ app/layout.tsx
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Landing / role picker |
+| `/` | Landing / role picker (local or unlocked cloud) or unlock entry |
+| `/login` | Shared access-code unlock screen |
 | `/menu` | Diner menu, categories, search, add to tonight |
 | `/order` | Tonight's order, note, submit, status |
 | `/wishlist` | Diner wishlist |
@@ -111,12 +113,16 @@ app/layout.tsx
 - `lib/api/supabase.ts` — cloud adapter.
 - `lib/api/index.ts` — chooses based on `isSupabaseConfigured`.
 - `lib/supabase.ts` — reads `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`; exports `null` when unconfigured.
+- `lib/auth.ts` — role labels/permission helpers, safe `next` redirects and Chinese access-code error copy.
 
 `components/providers/KitchenProvider.tsx` is the single source of truth for UI state and actions:
 
 - `run()` wraps mutations: busy counter → adapter call → silent refresh → success/error toast.
 - Loads all data on mount; subscribes to Supabase realtime for `dishes`, `orders`, `order_items`, `ratings`, `wishlist` with a 300 ms debounce.
 - Local mode listens to the `storage` event for cross-tab refreshes.
+- Auth: creates an anonymous Supabase session, checks `public.kitchen_members`, and exposes `authReady`, `authError`, `isUnlocked`, `isReadOnly`, `canEdit`, `canOrder`, `unlockKitchen` and `lockKitchen`.
+- Cloud guests are read-only until they redeem the shared code through `redeem_kitchen_code`. The diner/chef role is stored in `localStorage` and only controls the UI.
+- `ready` is data-ready **and** auth-ready, so pages do not flash write controls while the session loads.
 - `saveDish(input, id?, wishlistId?)` also approves the linked wish when converting.
 - Images are compressed in the browser (`lib/utils.ts`) before upload.
 
@@ -138,6 +144,8 @@ When adding a new entity or mutation:
 | `OrderItem` | order_id, dish_id, status (`pending` / `preparing` / `served`) |
 | `Rating` | order_id, dish_id, rating 1–5, comment; unique per order + dish |
 | `Wish` | title (nullable for link-only rows), note, status (`pending_review` / `ready`), source (`manual` / `share`), rednote_url, cover_image, calories, ingredients[], dish_id |
+| `KitchenAccess` | Single row with the shared `code`. RLS enabled with no client policies; only `redeem_kitchen_code` reads it. |
+| `KitchenMember` | `user_id` → `auth.users`. Created by the RPC when a device unlocks; RLS lets each user read only their own row. |
 
 Order lifecycle: `draft → submitted → completed`. A completed order is not reused; a new draft is created for the next dinner.
 
@@ -148,7 +156,7 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 ### Persistence and environment
 
 - Demo DB key: `tonights-kitchen:v1`.
-- Role key: `tonights-kitchen:role`.
+- Diner/chef UI mode key: `tonights-kitchen:role` (used in both local and cloud modes). The anonymous Supabase session is persisted by `@supabase/supabase-js`; membership lives in `public.kitchen_members`.
 - Env: copy `.env.example` → `.env.local`. `.gitignore` ignores `.env*` except `.env.example`, so `.env.production` and `.env.development` are covered too.
 - **Never commit any `.env*` file or a service-role key.** Only the public anon/publishable key may ever reach the browser.
 - `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` are **server-only** (no `NEXT_PUBLIC_` prefix) and read inside `app/api/ai/recipe/route.ts`. Never move them into the client bundle.
@@ -159,10 +167,12 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 
 ### Backend
 
-- `supabase/schema.sql`: tables, indexes, RLS, storage bucket, realtime publication. Safe to re-run. It also migrates an older `wishlist` table (`name` → `title`, `pending`/`approved` → `pending_review`/`ready`, new share columns).
+- `supabase/schema.sql`: seven tables (including `kitchen_access` and `kitchen_members`), indexes, RLS, storage bucket, realtime publication. Safe to re-run. It also migrates an older `wishlist` table (`name` → `title`, `pending`/`approved` → `pending_review`/`ready`, new share columns).
 - `supabase/seed.sql`: 25 dishes + one completed dinner + three wishes (one shared). Run **once**.
-- RLS is intentionally open to `anon, authenticated` for this private household app. This is a documented security trade-off, not a template for public multi-user apps.
-- If real multi-user support is added, replace the open policies and the role switch with real authentication.
+- RLS: guests (`anon`) read the live kitchen but cannot write; `kitchen_members` rows can write. The one exception is an append-only `pending_review` wishlist insert for the iOS Shortcut.
+- `redeem_kitchen_code(input_code)` compares the shared code and inserts the current anonymous user into `kitchen_members`. `is_kitchen_member()` is the RLS helper.
+- The code is set in the SQL editor: `insert into public.kitchen_access (id, code) values (true, '…') on conflict (id) do update set code = excluded.code;`. Delete `kitchen_members` to revoke all devices.
+- If multi-user support is added, replace the shared code with per-user auth and remove the Shortcut exception.
 
 ### Deployment (Vercel)
 
@@ -173,7 +183,7 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 
 ### PWA
 
-- Manifest: `public/manifest.json` — also declares a `share_target` (`GET` → `/import?title=…&text=…&url=…`). Parsing lives in `lib/share-import.ts`; `/import` must keep its `useSearchParams` client code inside a `Suspense` boundary.
+- Manifest: `public/manifest.json` — also declares a `share_target` (`GET` → `/import?title=…&text=…&url=…`). Parsing lives in `lib/share-import.ts`; `/import` and `/login` must keep their `useSearchParams` client code inside a `Suspense` boundary.
 - Service worker: `public/sw.js`.
 - Registration: `components/pwa/ServiceWorkerRegister.tsx`, production only.
 - Strategy: pages network-first, `/_next/static/*` cache-first, images cache-first, RSC requests skipped.
@@ -183,28 +193,45 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 
 ---
 
-## 5. User roles
+## 5. Access code and UI roles
 
-### Diner (点餐员)
+Cloud access is a single shared code. The diner/chef switch is a local UI mode stored in `localStorage`; it is not authorization. Local demo mode is always unlocked and fully editable.
+
+### Guest (cloud, locked)
+
+- Can read the menu, wishes, history and the live order.
+- Write actions are hidden or disabled; `ReadOnlyBanner` shows **只读演示 · Viewing live demo in read-only mode.**
+- `/chef/*` routes render `RoleGate`; `/import` asks them to unlock (and preserves the share via `?next=`).
+- RLS allows SELECT only, plus the append-only iOS Shortcut wishlist insert.
+
+### Unlocked diner (点餐员)
 
 - Browse/search categorized menu; categories: `主食`, `蔬菜`, `肉类/蛋类`, `汤品/饮料`, `小吃/甜品`.
 - Add/remove dishes for tonight; see calories and per-person average.
 - Write an optional note; submit the order.
 - Add wishes; view approved wishes.
 - Rate completed dinners (1–5 stars) and leave comments.
+- Cannot edit dishes, approve wishes, import shared links, run AI, upload photos, or delete anything. `/chef/*` shows `RoleGate`; `/import` points them back to the menu.
 - Diner nav: 点菜 · 今晚 · 心愿 · 回顾.
 
-### Chef (大厨)
+### Unlocked chef (大厨)
 
 - See the live order, note, calories, and progress.
 - Toggle each item: 备餐中 / 已上菜.
 - Mark all served, finish the night (order → completed).
-- Add/edit dishes: category, calories, emoji, photo, recipe steps, external link, active toggle.
+- Add/edit/delete dishes: category, calories, emoji, photo, recipe steps, external link, active toggle.
+- Import shared RedNote links (`/import` or the iOS Shortcut) into the wish inbox.
 - Approve wishes by converting them into dishes.
 - Shared links live in 心愿收件箱: **整理菜谱** opens the review sheet (link autofill + AI), **用完整表单做成这道菜** opens `DishForm` with `rednote_url` prefilled into 外部菜谱链接 and its own AI panel. Both publish through `completeWish`.
 - Chef nav: 订单 · 菜品 · 心愿 · 回顾.
 
-**Role is not access control.** Any role can open any route directly; copy may adapt (e.g. the menu says "大厨也在挑菜"). Do not add hard redirects without checking the role-switch flow and the two-person UX.
+### Local demo mode
+
+- No access code; `setRole` toggles 点餐员 / 大厨 in `localStorage`.
+- `canEdit` and `canOrder` are always true, so the demo adapter exercises every feature.
+- The landing page shows the two role cards in local mode and after a cloud unlock; a locked cloud visitor sees the unlock card instead.
+
+**Role is not a hard redirect.** Cloud chef routes render `RoleGate` instead of redirecting, so direct links and the two-person UX stay friendly. Do not add hard redirects without checking both the role gate and the local role switch.
 
 ---
 
@@ -245,6 +272,7 @@ Dates use **`Asia/Shanghai`** via `lib/utils.ts` (`todayISO`). Do not use `new D
 ### Components and interaction
 
 - Reuse `Button`, `PageIntro`, `DishImage`, `RatingStars`, `ConfirmDialog`, `EmptyState`, `Toggle`, `PageLoading`.
+- Use `ReadOnlyBanner` for cloud guests and `RoleGate` for chef-only routes; use `canEdit` / `canOrder` from `useKitchen()` for permissions instead of checking the role string directly.
 - Touch targets: primary actions `h-11` / `h-13`; avoid making small icon-only controls smaller than `size-9`.
 - Every page needs sensible loading, empty, and error states.
 - Use `aria-label` for icon-only buttons and `aria-current` for nav.
@@ -287,6 +315,11 @@ Before declaring work done:
    - Chef: add a dish → save → toggle active; convert a wish → save.
    - Share import: open `/import?title=番茄牛腩&text=…&url=https://xhslink.com/a/abc`, confirm the success toast, then in 心愿 → 心愿收件箱 review it and save (with and without `OPENROUTER_API_KEY`).
    - Reload: demo data and role persist.
+   - Cloud guest: locked → menu/wishlist are visible, add/edit/delete/AI controls are hidden or disabled, and the read-only banner is visible.
+   - Unlock with the shared code → the device is remembered after reload; a wrong code shows a friendly error.
+   - Cloud diner: can order, wish and rate; `/chef/*` shows `RoleGate`.
+   - Cloud chef: can manage dishes, wishes, AI and photos.
+   - Lock the device in 设置 → the unlock screen returns; re-entering the code unlocks again.
 6. Small-screen check at **360×640**: no overflow, fixed bars do not cover the last field, nav and toast do not overlap.
 7. PWA check (production only):
    - `npm run build && npm start`
@@ -300,14 +333,16 @@ Before declaring work done:
 
 ## 9. Known limitations
 
-- Role switching is a UX mode, not authorization.
+- Cloud authorization is enforced by RLS + `public.kitchen_members`; the diner/chef switch is only a UX mode. The iOS Shortcut's append-only anon wishlist insert is a deliberate exception.
+- The access code is shared, not per-person. Changing it does not revoke devices that already unlocked; delete `kitchen_members` to revoke everyone.
+- Anonymous sign-ins must be enabled in Supabase or the unlock flow cannot create a session.
 - Web Share Target works on Android / Chromium and Edge only; iOS Safari has no share target, so iPhone users add wishes with the Shortcut (which needs cloud mode + the anon key) or by hand.
 - RedNote often blocks server-side preview fetches, so `/api/link-meta` can fail; the review modal then relies on pasted text or a screenshot.
 - Dishes that already appeared in a dinner cannot be deleted (`order_items` restricts the FK); the UI asks the chef to 下架 instead so history and ratings survive.
 - The ✨ 自动找图 button needs `UNSPLASH_ACCESS_KEY`; without it the chef uploads a photo by hand.
 - The AI auto-fill needs `OPENROUTER_API_KEY`; without it the review modal stays fully usable but manual.
-- The AI route is unauthenticated (like the rest of the app) and only throttled in memory; don't expose it publicly without auth.
-- Supabase policies are open for a private household; not suitable for a public deployment.
+- The AI route is not tied to the unlocked device (the client calls it directly) and is only throttled in memory; the UI hides it from guests and diners, but it is not an auth boundary.
+- Supabase policies are tuned for a private household; add a user-ID allow-list before sharing the project more widely.
 - Cloud mode has **no in-app data reset**; 重置演示数据 only exists in local mode.
 - Demo mode is per-browser only and bounded by localStorage quota.
 - One active dinner per day; completed orders move to history.

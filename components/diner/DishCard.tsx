@@ -1,8 +1,9 @@
 "use client";
 
-import { Check, ExternalLink, Flame, Loader2, Plus } from "lucide-react";
+import { Check, ExternalLink, Flame, Loader2, LockKeyhole, Plus } from "lucide-react";
 import { useState } from "react";
 
+import { useKitchen } from "@/components/providers/KitchenProvider";
 import { DishImage } from "@/components/ui/DishImage";
 import { categoryLabel } from "@/lib/categories";
 import { isRedNoteUrl } from "@/lib/share-import";
@@ -17,10 +18,11 @@ interface DishCardProps {
 }
 
 export function DishCard({ dish, added, onAdd, index = 0 }: DishCardProps) {
+  const { canOrder } = useKitchen();
   const [pending, setPending] = useState(false);
 
   const handleAdd = async () => {
-    if (added || pending) return;
+    if (!canOrder || added || pending) return;
     setPending(true);
     await onAdd();
     setPending(false);
@@ -68,23 +70,27 @@ export function DishCard({ dish, added, onAdd, index = 0 }: DishCardProps) {
           <button
             type="button"
             onClick={handleAdd}
-            disabled={added || pending}
+            disabled={!canOrder || added || pending}
             aria-pressed={added}
             className={cn(
-              "flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-[12.5px] font-bold transition-all active:scale-[0.97]",
+              "flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-[12.5px] font-bold transition-all active:scale-[0.97] disabled:active:scale-100",
               added
                 ? "bg-sage-soft text-[#5D744F]"
-                : "bg-terracotta text-white shadow-[0_8px_18px_-12px_rgba(169,85,58,0.95)]",
+                : canOrder
+                  ? "bg-terracotta text-white shadow-[0_8px_18px_-12px_rgba(169,85,58,0.95)]"
+                  : "bg-cream-deep text-ink-soft",
             )}
           >
             {pending ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : added ? (
               <Check className="size-3.5" strokeWidth={3} />
-            ) : (
+            ) : canOrder ? (
               <Plus className="size-3.5" strokeWidth={3} />
+            ) : (
+              <LockKeyhole className="size-3.5" />
             )}
-            {added ? "已加入今晚" : "今晚想吃"}
+            {added ? "已加入今晚" : canOrder ? "今晚想吃" : "解锁后点菜"}
           </button>
         </div>
       </div>

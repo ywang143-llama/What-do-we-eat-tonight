@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { useKitchen } from "@/components/providers/KitchenProvider";
+import { canManageRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -24,9 +25,17 @@ interface NavItem {
 
 export function BottomNav() {
   const pathname = usePathname();
-  const { role, tonight, wishlist } = useKitchen();
+  const {
+    role,
+    tonight,
+    wishlist,
+    mode,
+    authReady,
+    isUnlocked,
+  } = useKitchen();
 
-  if (!role) return null;
+  if (mode === "supabase" && !authReady) return null;
+  if (mode === "local" && !role) return null;
 
   const pendingWishes = wishlist.filter(
     (wish) => wish.status === "pending_review",
@@ -49,7 +58,12 @@ export function BottomNav() {
     { href: "/history", label: "回顾", icon: Star },
   ];
 
-  const items = role === "chef" ? chefItems : dinerItems;
+  const items =
+    mode === "supabase" && !isUnlocked
+      ? dinerItems.filter((item) => item.href !== "/order")
+      : canManageRole(role)
+        ? chefItems
+        : dinerItems;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 bg-gradient-to-t from-cream via-cream/95 to-transparent pt-5">

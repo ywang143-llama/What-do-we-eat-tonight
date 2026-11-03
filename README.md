@@ -6,6 +6,8 @@ The entire UI is in Simplified Chinese. When Supabase is not configured the app 
 
 - **Diner (点餐员)** — browse a categorized menu, build tonight's order, write wishlist requests, rate past dinners.
 - **Chef (大厨)** — see tonight's live order, toggle dishes between 备餐中 / 已上菜, manage the menu, upload dish photos, turn wishes into real dishes.
+- **Single access code** — one shared code is stored in Supabase and unlocks the cloud kitchen on each device. Guests can browse read-only until they enter it.
+- **Diner / chef switch** — a local UI mode: the chef sees editing tools (menu, wish inbox, AI); the diner sees ordering, wishes and ratings.
 - **Shared from RedNote (小红书)** — share a note to the installed app and it lands in the chef's wish inbox, ready for an AI-assisted quick fill.
 
 Built with **Next.js 16 (App Router) · React 19 · Tailwind CSS 4 · Supabase · PWA**.
@@ -25,7 +27,7 @@ Open <http://localhost:3000>.
 
 On first launch you get a **local demo kitchen** seeded with 25 common Chinese home-cooked dishes, a completed dinner from yesterday (with ratings), and two wishlist items. Everything is stored in this browser's `localStorage`, so it survives refreshes but does not sync between devices.
 
-Choose **点餐员** or **大厨** on the landing screen and start using the app.
+Choose **点餐员** or **大厨** on the landing screen and start using the app. Local demo mode has no access code; when Supabase is connected, the landing page shows **解锁** instead and guests can browse read-only.
 
 > Reset the demo at any time: **设置 → 重置演示数据**.
 
@@ -49,6 +51,7 @@ Three layers, all runnable offline:
    - `share-import.test.ts` — the `/import` URL parameter parser
    - `ai-recipe.test.ts` — category mapping, calorie clamping, tolerant JSON parsing
    - `local-api.test.ts` — the localStorage adapter: share dedupe, `completeWish`, legacy-data migration
+   - `auth.test.ts` — role helpers, safe post-unlock redirects and friendly access-code errors
 2. **End-to-end smoke test** — `npm run test:e2e` drives Chromium through `/import` → 心愿收件箱 → 整理菜谱 → 已上架 at a 360×640 viewport. `playwright.config.ts` starts `next dev` with empty Supabase/OpenRouter env vars, so it always uses the demo kitchen and never touches real data or API credits. Playwright lives in `devDependencies` only.
 3. **CI** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `npm test`, `npm run typecheck`, `npm run build` and the Playwright job on every pull request.
 
@@ -71,10 +74,10 @@ You need a Supabase project to sync data between the two phones.
 
 This creates:
 
-- `dishes`, `orders`, `order_items`, `ratings`, `wishlist`
-- Row Level Security policies
-- the public `dish-images` storage bucket + upload policies
-- Realtime on all five tables
+- `dishes`, `orders`, `order_items`, `ratings`, `wishlist`, `kitchen_access`, `kitchen_members`
+- Row Level Security: guests read, unlocked kitchen members write
+- the public `dish-images` storage bucket + member-only upload policies
+- Realtime on the five kitchen tables
 
 ### 3. Load the demo menu (optional)
 
@@ -115,19 +118,36 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
 
 Restart the dev server. The landing page footer should now say **云端厨房已连接**, and 设置 → 数据存放 should show **Supabase 云端**.
 
-### 6. Enable anonymous sign-in (optional, recommended)
+### 6. Set the access code
 
-The app requests an anonymous Supabase Auth session so writes and uploads are associated with a real auth user:
+The app uses **one shared access code**, backed by Supabase anonymous auth:
 
-1. Supabase → **Authentication → Providers**.
-2. Enable **Anonymous sign-ins**.
+1. Supabase → **Authentication → Providers** and enable **Anonymous sign-ins**. The app needs an anonymous session to remember which devices unlocked the kitchen.
+2. In the SQL Editor, add the code:
 
-If you skip this, the app still works because the RLS policies also permit the `anon` role. The only difference is that requests are not tied to an auth session.
+   ```sql
+   insert into public.kitchen_access (id, code)
+   values (true, 'your-shared-code')
+   on conflict (id) do update set code = excluded.code;
+   ```
+
+   The code is case-sensitive and can be anything you like. It is stored in a table with RLS enabled and no client policies, so only the `redeem_kitchen_code` RPC can read it.
+3. Open **解锁** in the app and enter the code. The device is remembered via an anonymous session + a row in `public.kitchen_members`.
+4. Choose **点餐员** or **大厨** on the landing screen. This is a local UI mode, not authorization: the chef mode shows editing tools, the diner mode shows ordering and wishes.
+
+To change the code later, update the row above. Devices that already unlocked stay unlocked until they tap **锁定这台设备** (or you clear `kitchen_members`). To revoke every device:
+
+```sql
+delete from public.kitchen_members;
+```
+
+Without an access code the live kitchen is **read-only**: menu, wishes and history are visible, but add/edit/delete/AI actions are hidden.
 
 ### 7. Verify Storage & Realtime
 
 - **Storage** → you should see a public bucket named `dish-images`.
 - **Database → Publications** → `supabase_realtime` should include the five kitchen tables (the schema script does this automatically).
+- **Table Editor** → `kitchen_access` has your code row, and `kitchen_members` fills up after a device unlocks.
 
 If you created the project before running the schema, re-running `schema.sql` is safe.
 
@@ -233,6 +253,7 @@ The manifest lives at [`public/manifest.json`](public/manifest.json) and the ser
 Notes:
 
 - Web Share Target is supported on **Android / Chromium and Edge**. iOS Safari does not implement it, so iPhone users use the **iOS Shortcut** below instead.
+- **Wishlist import is a chef-mode tool.** Guests are asked to unlock, and diners are pointed back to the menu. The share target and the iOS Shortcut both feed the chef's inbox.
 - Links and share boilerplate are cleaned up by [`lib/share-import.ts`](lib/share-import.ts); the same URL is never queued twice.
 - The same route works in local demo mode, so you can paste a share URL into the address bar to try it without a phone.
 
@@ -337,7 +358,7 @@ Notes:
 
 ### Security & limits
 
-- The anon key is public by design for this private kitchen (see the security note below). Anyone holding it can insert rows.
+- The anon key can append a `pending_review` wishlist row (the one deliberate exception to read-only guests), but cannot edit or delete anything. Remove that policy if you do not use the Shortcut.
 - RedNote frequently blocks server-side preview fetches. When autofill reports a failure, paste the note text or add a screenshot in **整理菜谱** — the manual form and the AI parser still work.
 - The Shortcut is iOS-only; Android users use the **Web Share Target** described above.
 
@@ -380,6 +401,8 @@ In Supabase mode the app subscribes to Postgres changes on all five tables and a
 | `order_items` | Dishes in an order with status (`pending` / `preparing` / `served`) |
 | `ratings` | One rating + comment per dish per order (unique on `order_id, dish_id`) |
 | `wishlist` | Wishes from the diner plus RedNote shares awaiting review: `title` (nullable — Shortcut rows start without one), `note`, `status` (`pending_review` / `ready`), `source` (`manual` / `share` / `rednote`), `rednote_url`, `cover_image`, `calories`, `ingredients`, optional link to the created dish |
+| `kitchen_access` | One row with the shared access `code`. RLS is enabled with no client policies; only the `redeem_kitchen_code` RPC reads it. |
+| `kitchen_members` | One row per Supabase Auth user that redeemed the code. RLS lets each user read only their own row; the RPC writes it. |
 
 Categories are fixed in [`lib/categories.ts`](lib/categories.ts): `staple`, `vegetable`, `meat`, `soup`, `snack`.
 
@@ -391,7 +414,8 @@ The TypeScript contract is in [`lib/types.ts`](lib/types.ts). Both the localStor
 
 ```text
 app/
-  page.tsx                 Role picker / landing
+  page.tsx                 Landing / role picker (local or unlocked cloud) or unlock entry
+  login/                   Shared access-code unlock screen
   menu/                    Diner menu + categories + search
   order/                   Tonight's menu, note, submit
   wishlist/                Diner wishlist
@@ -405,11 +429,12 @@ app/
     menu/[id]/             Edit dish form
     wishlist/              Wish approval + shared-wish inbox
     wishlist/[id]/         Convert a wish into a dish
-  settings/                Role, data mode, install guide, reset
+  settings/                Access code, role, data mode, install guide, reset
   offline/                 Standalone offline page (the service worker also has a tiny built-in fallback)
 components/
-  providers/KitchenProvider.tsx   Data + role + toasts + realtime
-  layout/                  Header, bottom nav, toaster, error banner
+  providers/KitchenProvider.tsx   Data + access code + role + toasts + realtime
+  auth/RoleGate.tsx        Chef-mode route guard + unlock hint
+  layout/                  Header, bottom nav, toaster, read-only/error banners
   diner/DishCard.tsx
   chef/DishForm.tsx
   chef/WishReviewModal.tsx Edit / complete recipe + AI auto-fill
@@ -418,6 +443,7 @@ components/
 lib/
   api/local.ts             localStorage demo adapter
   api/supabase.ts          Supabase adapter
+  auth.ts                  Role labels, permission helpers, access-code error copy
   seed.ts                  25 mock dishes + demo history
   share-import.ts          Share-target parameter parser
   ai-recipe.ts             AI draft schema + normaliser
@@ -455,6 +481,18 @@ Check that the `dish-images` bucket exists and is public, and re-run the storage
 **Changes don't appear on the other phone**
 Realtime may not be enabled. Check **Database → Publications → supabase_realtime** includes the kitchen tables, or simply pull to refresh / refocus the app. Re-running the schema's Realtime block is safe.
 
+**I see 只读演示 and cannot add or edit**
+Open **解锁** and enter the shared access code. The menu and wishes stay readable in the meantime.
+
+**I unlocked but the edit buttons are still hidden**
+You are in **点餐员** mode. Use the header switch or 设置 → 当前身份 to switch to **大厨**.
+
+**The unlock screen says anonymous sign-ins are disabled**
+Supabase → **Authentication → Providers** → enable **Anonymous sign-ins**, then reload.
+
+**The access code doesn't work**
+Check the row in `public.kitchen_access` (the code is case-sensitive). If the error mentions the RPC or schema cache, re-run `supabase/schema.sql`. To revoke every device, `delete from public.kitchen_members;`.
+
 **The install prompt never shows**
 It only appears on supported browsers (iOS Safari, Chromium). Production HTTPS is required. Use the manual **Add to Home Screen** steps above. The prompt is also dismissible, and the dismissal is stored locally.
 
@@ -477,13 +515,19 @@ The AI route needs `OPENROUTER_API_KEY` on the server (`.env.local` or Vercel en
 
 ## Security note
 
-This is a **private two-person app**, and `schema.sql` deliberately allows the `anon` role full access to the five tables so that setup is one SQL paste and no login screen.
+This is a **private two-person app** protected by one shared access code:
 
-That means: **anyone who has your deployed URL and anon key can read and write the data.** The anon key is visible in the browser bundle by design. For a private couple's app this is usually acceptable, but if you share the URL publicly you should lock it down:
+- **Guests (`anon`)** can read the live kitchen but cannot write.
+- **Unlocked devices** have a row in `public.kitchen_members`; that row is what RLS checks for writes.
+- **The access code** lives in `public.kitchen_access`, a table with RLS enabled and no client policies. Only the security-definer `redeem_kitchen_code` RPC can read it.
+- **The diner/chef switch is a UI mode**, not authorization. Anyone with the code can switch to chef mode; that is intentional for this two-person kitchen.
+- **The one exception** is an append-only wishlist insert for the iOS Shortcut, which only has the public anon key. It can add a `pending_review` row with a `rednote_url`, but cannot update or delete anything. Remove that policy if you do not use the Shortcut.
 
-1. Enable Supabase Auth (email/OAuth) and require a signed-in user.
-2. Replace the `for all to anon` policies with `to authenticated` policies limited to your two user IDs.
-3. Make the `dish-images` bucket private and serve images through signed URLs, or keep it public but restrict writes.
+The anon key is still visible in the browser bundle by design; it is safe as long as RLS stays in place. If you want a stricter deployment:
+
+1. Remove the anonymous wishlist insert policy and give the Shortcut a signed-in user's access token instead.
+2. Make the `dish-images` bucket private and serve images through signed URLs.
+3. Replace the shared code with per-user auth and an allow-list of user IDs.
 
 Do not put a Supabase `service_role` key in any `NEXT_PUBLIC_*` variable.
 

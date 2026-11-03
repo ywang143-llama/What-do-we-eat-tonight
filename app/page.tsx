@@ -6,13 +6,16 @@ import {
   ArrowRight,
   ChevronRight,
   HeartHandshake,
+  LockKeyhole,
   Settings2,
   Sparkles,
+  Unlock,
 } from "lucide-react";
 
 import { BowlHero } from "@/components/illustrations/BowlHero";
 import { useKitchen } from "@/components/providers/KitchenProvider";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
+import { Button } from "@/components/ui/Button";
 import type { Role } from "@/lib/types";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { cn } from "@/lib/utils";
@@ -51,7 +54,14 @@ const ROLES: Array<{
 
 export default function HomePage() {
   useDocumentTitle("今晚吃什么");
-  const { role, roleReady, setRole, mode } = useKitchen();
+  const {
+    role,
+    roleReady,
+    setRole,
+    mode,
+    authReady,
+    isUnlocked,
+  } = useKitchen();
   const router = useRouter();
 
   const enter = (nextRole: Role) => {
@@ -128,89 +138,125 @@ export default function HomePage() {
         <BowlHero className="mx-auto -mb-2 mt-1 w-[272px] max-w-full" />
       </section>
 
-      <section className="relative mt-4 space-y-3 pb-1">
-        <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.1em] text-ink-soft">
-          <Sparkles className="size-3.5 text-amber" />
-          现在，你是——
-        </p>
+      {mode === "local" || isUnlocked ? (
+        <section className="relative mt-4 space-y-3 pb-1">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.1em] text-ink-soft">
+            <Sparkles className="size-3.5 text-amber" />
+            现在，你是——
+          </p>
 
-        {ROLES.map((item, index) => {
-          const isCurrent = roleReady && role === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => enter(item.id)}
-              style={{ animationDelay: `${index * 70 + 90}ms` }}
-              className={cn(
-                "animate-rise group flex w-full items-center gap-3.5 rounded-[26px] border bg-gradient-to-br p-4 text-left shadow-card transition-all duration-200 active:scale-[0.985]",
-                item.card,
-                isCurrent
-                  ? "ring-2 ring-terracotta/60 ring-offset-2 ring-offset-cream"
-                  : "hover:shadow-soft",
-              )}
-            >
-              <span
+          {ROLES.map((item, index) => {
+            const isCurrent = roleReady && role === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => enter(item.id)}
+                style={{ animationDelay: `${index * 70 + 90}ms` }}
                 className={cn(
-                  "grid size-[52px] shrink-0 place-items-center rounded-[19px] text-[26px] shadow-inner",
-                  item.avatar,
+                  "animate-rise group flex w-full items-center gap-3.5 rounded-[26px] border bg-gradient-to-br p-4 text-left shadow-card transition-all duration-200 active:scale-[0.985]",
+                  item.card,
+                  isCurrent
+                    ? "ring-2 ring-terracotta/60 ring-offset-2 ring-offset-cream"
+                    : "hover:shadow-soft",
                 )}
               >
-                {item.emoji}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className="text-[16px] font-bold text-ink">
-                    {item.title}
-                  </span>
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-[9.5px] font-semibold",
-                      item.chip,
-                    )}
-                  >
-                    {item.badge}
-                  </span>
-                  {isCurrent ? (
-                    <span className="rounded-full bg-white/70 px-2 py-0.5 text-[9px] font-semibold text-terracotta">
-                      上次选择
+                <span
+                  className={cn(
+                    "grid size-[52px] shrink-0 place-items-center rounded-[19px] text-[26px] shadow-inner",
+                    item.avatar,
+                  )}
+                >
+                  {item.emoji}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className="text-[16px] font-bold text-ink">
+                      {item.title}
                     </span>
-                  ) : null}
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[9.5px] font-semibold",
+                        item.chip,
+                      )}
+                    >
+                      {item.badge}
+                    </span>
+                    {isCurrent ? (
+                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[9px] font-semibold text-terracotta">
+                        上次选择
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="mt-1 block text-[11.5px] leading-relaxed text-ink-soft">
+                    {item.description}
+                  </span>
                 </span>
-                <span className="mt-1 block text-[11.5px] leading-relaxed text-ink-soft">
-                  {item.description}
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/60 text-terracotta transition group-hover:translate-x-0.5">
+                  <ChevronRight className="size-4" strokeWidth={2.4} />
                 </span>
-              </span>
-              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/60 text-terracotta transition group-hover:translate-x-0.5">
-                <ChevronRight className="size-4" strokeWidth={2.4} />
-              </span>
-            </button>
-          );
-        })}
+              </button>
+            );
+          })}
 
-        <div className="flex items-center justify-center gap-5 pt-1 text-[10px] font-medium text-ink-soft/90">
-          <span className="flex items-center gap-1">
-            <span className="grid size-4 place-items-center rounded-full bg-amber-soft/70 text-[8px] text-[#8C6027]">
-              1
+          <div className="flex items-center justify-center gap-5 pt-1 text-[10px] font-medium text-ink-soft/90">
+            <span className="flex items-center gap-1">
+              <span className="grid size-4 place-items-center rounded-full bg-amber-soft/70 text-[8px] text-[#8C6027]">
+                1
+              </span>
+              选菜
             </span>
-            选菜
-          </span>
-          <ArrowRight className="size-3 text-line" />
-          <span className="flex items-center gap-1">
-            <span className="grid size-4 place-items-center rounded-full bg-amber-soft/70 text-[8px] text-[#8C6027]">
-              2
+            <ArrowRight className="size-3 text-line" />
+            <span className="flex items-center gap-1">
+              <span className="grid size-4 place-items-center rounded-full bg-amber-soft/70 text-[8px] text-[#8C6027]">
+                2
+              </span>
+              提交
             </span>
-            提交
-          </span>
-          <ArrowRight className="size-3 text-line" />
-          <span className="flex items-center gap-1">
-            <span className="grid size-4 place-items-center rounded-full bg-amber-soft/70 text-[8px] text-[#8C6027]">
-              3
+            <ArrowRight className="size-3 text-line" />
+            <span className="flex items-center gap-1">
+              <span className="grid size-4 place-items-center rounded-full bg-amber-soft/70 text-[8px] text-[#8C6027]">
+                3
+              </span>
+              开饭
             </span>
-            开饭
-          </span>
-        </div>
-      </section>
+          </div>
+        </section>
+      ) : !authReady ? (
+        <section className="relative mt-4 space-y-3 pb-1">
+          <div className="animate-rise rounded-[26px] border border-line bg-paper p-5 text-center shadow-card">
+            <p className="text-[12px] text-ink-soft">正在准备厨房…</p>
+          </div>
+        </section>
+      ) : (
+        <section className="relative mt-4 space-y-3 pb-1">
+          <div className="animate-rise rounded-[26px] border border-[#EFD8B2] bg-gradient-to-br from-[#FFF9EE] via-[#FDF1DC] to-[#F8E1B9] p-4 shadow-card">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-1 text-[9.5px] font-semibold text-[#8C6027]">
+              <LockKeyhole className="size-3" />
+              只读演示
+            </span>
+            <h2 className="mt-2.5 text-[17px] font-bold text-ink">
+              先看看今晚有什么
+            </h2>
+            <p className="mt-1 text-[11.5px] leading-relaxed text-ink-soft">
+              输入大厨设置的访问码，就能点菜、写心愿和管理菜单。现在也可以先只读逛逛。
+            </p>
+            <div className="mt-4 flex gap-2.5">
+              <Link href="/login" className="flex-1">
+                <Button size="md" className="w-full">
+                  <Unlock className="size-4" />
+                  输入访问码
+                </Button>
+              </Link>
+              <Link href="/menu" className="flex-1">
+                <Button size="md" variant="secondary" className="w-full">
+                  逛逛菜单
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
 
       <div className="relative mt-4">
         <InstallPrompt />

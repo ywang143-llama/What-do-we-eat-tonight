@@ -8,6 +8,25 @@ the project uses [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Added
 
+- **Single access-code auth** — `/login` is now a shared-code unlock screen.
+  Visitors get an anonymous Supabase session; `redeem_kitchen_code(code)`
+  compares the code in `public.kitchen_access` and records the device in
+  `public.kitchen_members`. `KitchenProvider` exposes `authReady`, `authError`,
+  `isUnlocked`, `isReadOnly`, `canEdit`, `canOrder`, `unlockKitchen` and
+  `lockKitchen`.
+- **Read-only guest demo** — guests in cloud mode can browse the live menu,
+  wishes, history and order, but add/edit/delete/AI controls are hidden or
+  disabled. `ReadOnlyBanner` shows *只读演示 · Viewing live demo in read-only
+  mode.* and links to `/login`.
+- **Diner/chef UI switch** — the role is a local `localStorage` mode, not
+  authorization. `diner` can order, wish and rate; `chef` gets full editing,
+  wishlist import, dish creation, AI parsing and photo upload. Chef-only routes
+  render `RoleGate` instead of hard-redirecting, and the local demo stays fully
+  editable.
+- **Schema: access code tables** — `public.kitchen_access` (one shared code,
+  RLS with no client policies), `public.kitchen_members` (one row per unlocked
+  device), `redeem_kitchen_code()` and `is_kitchen_member()` for RLS. Guests can
+  only SELECT; the iOS Shortcut keeps its append-only anon wishlist insert.
 - **✨ 自动找图 (Unsplash)** — `GET /api/dish-image?q=…` searches Unsplash
   (`UNSPLASH_ACCESS_KEY`, server-side only) and the dish form shows six
   candidates to use as the cover. Helpers live in `lib/image-search.ts`, with

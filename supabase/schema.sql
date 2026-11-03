@@ -4,15 +4,22 @@
 -- ============================================================
 --
 --  What this file sets up:
---   • 5 tables: dishes, orders, order_items, ratings, wishlist
---   • Row Level Security for a private two-person kitchen
---   • A public "dish-images" storage bucket + upload policies
---   • Realtime on every table, so both phones update live
+--   • 7 tables: dishes, orders, order_items, ratings, wishlist,
+--     kitchen_access, kitchen_members
+--   • Row Level Security: guests read, unlocked kitchen members write
+--   • A public "dish-images" storage bucket + member-only upload policies
+--   • Realtime on the five kitchen tables, so both phones update live
 --
---  This app intentionally allows the `anon` role to read/write so that it
---  works out of the box with just the public anon key. It is designed for a
---  private URL shared by two people. If you ever make it public, add real
---  authentication and replace the policies at the bottom of this file.
+--  Auth is a single shared access code. Add or change it in the SQL editor:
+--    insert into public.kitchen_access (id, code)
+--    values (true, 'your-code')
+--    on conflict (id) do update set code = excluded.code;
+--
+--  Visitors get an anonymous Supabase session. `redeem_kitchen_code` checks
+--  the code and adds them to `kitchen_members`; the app then remembers the
+--  device. The diner/chef switch is a local UI mode, not authorization.
+--  Guests can read the live kitchen but cannot write — except the append-only
+--  wishlist insert used by the iOS Shortcut.
 -- ============================================================
 
 create extension if not exists pgcrypto;
@@ -86,6 +93,24 @@ comment on table public.order_items is 'Dishes in a dinner order + cooking statu
 comment on table public.ratings is 'The diner''s rating for a dish in a completed order.';
 comment on table public.wishlist is 'Wishes from the diner, plus RedNote shares waiting in the chef''s inbox.';
 
+-- One shared access code. The table has RLS enabled and no policies, so only
+-- the security-definer RPC below can read it. Add the code in the SQL editor.
+create table if not exists public.kitchen_access (
+  id boolean primary key default true check (id),
+  code text not null,
+  updated_at timestamptz not null default now()
+);
+
+comment on table public.kitchen_access is 'Single shared access code for the private kitchen.';
+
+-- Anonymous Supabase users who have redeemed the access code on this device.
+create table if not exists public.kitchen_members (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+comment on table public.kitchen_members is 'Supabase Auth users who unlocked the kitchen with the access code.';
+
 -- ------------------------------------------------------------
 -- 1b. Wishlist migration (for kitchens created before share-import)
 -- ------------------------------------------------------------
@@ -130,6 +155,63 @@ update public.wishlist set source = 'share' where source = 'rednote';
 alter table public.wishlist
   add constraint wishlist_source_check check (source in ('manual', 'share', 'rednote'));
 
+-- ------------------------------------------------------------
+-- 1c. Access code
+-- ------------------------------------------------------------
+-- If you ran the earlier email-auth version, its `user_roles` table and trigger
+-- can stay in place; this app no longer reads them. Drop them manually if you
+-- want a clean project.
+--
+-- Returns true and records the current anonymous user as a member when the
+-- code matches. The code itself is never exposed to the client.
+create or replace function public.redeem_kitchen_code(input_code text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  expected text;
+begin
+  if auth.uid() is null then
+    return false;
+  end if;
+
+  select code into expected from public.kitchen_access where id = true;
+  if input_code is null
+    or expected is null
+    or btrim(expected) = ''
+    or btrim(input_code) <> btrim(expected) then
+    return false;
+  end if;
+
+  insert into public.kitchen_members (user_id)
+  values (auth.uid())
+  on conflict (user_id) do nothing;
+
+  return true;
+end;
+$$;
+
+revoke all on function public.redeem_kitchen_code(text) from public;
+grant execute on function public.redeem_kitchen_code(text) to authenticated;
+
+-- Membership check used by RLS and the storage policies.
+create or replace function public.is_kitchen_member()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.kitchen_members where user_id = auth.uid()
+  );
+$$;
+
+revoke all on function public.is_kitchen_member() from public;
+grant execute on function public.is_kitchen_member() to anon, authenticated;
+
 create index if not exists dishes_category_idx on public.dishes (category);
 create index if not exists dishes_active_idx on public.dishes (is_active);
 create index if not exists orders_date_idx on public.orders (order_date desc);
@@ -159,45 +241,121 @@ create trigger dishes_touch_updated_at
   for each row
   execute function public.touch_updated_at();
 
+drop trigger if exists kitchen_access_touch_updated_at on public.kitchen_access;
+create trigger kitchen_access_touch_updated_at
+  before update on public.kitchen_access
+  for each row
+  execute function public.touch_updated_at();
+
 -- ------------------------------------------------------------
 -- 2. Row Level Security
 -- ------------------------------------------------------------
--- Private two-person app: the anon key is treated as the shared house key.
--- The app also signs in anonymously when enabled, which satisfies
--- `authenticated` policies below. Both roles are allowed.
+-- Guests (anon) read the live kitchen but cannot write. A Supabase user with a
+-- row in public.kitchen_members (created by redeeming the access code) can
+-- order, wish and rate. The one deliberate exception is the append-only
+-- wishlist insert used by the iOS Shortcut, which only has the public anon key.
 
 alter table public.dishes enable row level security;
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
 alter table public.ratings enable row level security;
 alter table public.wishlist enable row level security;
+alter table public.kitchen_access enable row level security;
+alter table public.kitchen_members enable row level security;
 
+-- Dishes: everyone reads; unlocked members write.
 drop policy if exists "kitchen dishes access" on public.dishes;
-create policy "kitchen dishes access" on public.dishes
-  for all to anon, authenticated using (true) with check (true);
+drop policy if exists "dishes are readable" on public.dishes;
+drop policy if exists "dishes are writable by kitchen members" on public.dishes;
+create policy "dishes are readable" on public.dishes
+  for select to anon, authenticated using (true);
+create policy "dishes are writable by kitchen members" on public.dishes
+  for all to authenticated
+  using (public.is_kitchen_member())
+  with check (public.is_kitchen_member());
 
+-- Orders, items and ratings: everyone reads; unlocked members write.
 drop policy if exists "kitchen orders access" on public.orders;
-create policy "kitchen orders access" on public.orders
-  for all to anon, authenticated using (true) with check (true);
+drop policy if exists "orders are readable" on public.orders;
+drop policy if exists "orders are writable by kitchen members" on public.orders;
+create policy "orders are readable" on public.orders
+  for select to anon, authenticated using (true);
+create policy "orders are writable by kitchen members" on public.orders
+  for all to authenticated
+  using (public.is_kitchen_member())
+  with check (public.is_kitchen_member());
 
 drop policy if exists "kitchen order items access" on public.order_items;
-create policy "kitchen order items access" on public.order_items
-  for all to anon, authenticated using (true) with check (true);
+drop policy if exists "order items are readable" on public.order_items;
+drop policy if exists "order items are writable by kitchen members" on public.order_items;
+create policy "order items are readable" on public.order_items
+  for select to anon, authenticated using (true);
+create policy "order items are writable by kitchen members" on public.order_items
+  for all to authenticated
+  using (public.is_kitchen_member())
+  with check (public.is_kitchen_member());
 
 drop policy if exists "kitchen ratings access" on public.ratings;
-create policy "kitchen ratings access" on public.ratings
-  for all to anon, authenticated using (true) with check (true);
+drop policy if exists "ratings are readable" on public.ratings;
+drop policy if exists "ratings are writable by kitchen members" on public.ratings;
+create policy "ratings are readable" on public.ratings
+  for select to anon, authenticated using (true);
+create policy "ratings are writable by kitchen members" on public.ratings
+  for all to authenticated
+  using (public.is_kitchen_member())
+  with check (public.is_kitchen_member());
 
+-- Wishlist: everyone reads; unlocked members write.
 drop policy if exists "kitchen wishlist access" on public.wishlist;
-create policy "kitchen wishlist access" on public.wishlist
-  for all to anon, authenticated using (true) with check (true);
+drop policy if exists "wishlist is readable" on public.wishlist;
+drop policy if exists "wishlist is writable by kitchen members" on public.wishlist;
+drop policy if exists "shared wishes can be appended anonymously" on public.wishlist;
+create policy "wishlist is readable" on public.wishlist
+  for select to anon, authenticated using (true);
+create policy "wishlist is writable by kitchen members" on public.wishlist
+  for all to authenticated
+  using (public.is_kitchen_member())
+  with check (public.is_kitchen_member());
+-- iOS Shortcut: append-only pending shares with the public anon key.
+create policy "shared wishes can be appended anonymously" on public.wishlist
+  for insert to anon
+  with check (
+    status = 'pending_review'
+    and rednote_url is not null
+    and dish_id is null
+    and approved_at is null
+  );
+
+-- Members: each user can read only their own row. The RPC writes it.
+drop policy if exists "users can read their own membership" on public.kitchen_members;
+create policy "users can read their own membership" on public.kitchen_members
+  for select to authenticated
+  using (user_id = auth.uid());
+
+-- kitchen_access has RLS enabled and no policies: only the RPC can read it.
 
 -- Explicit table grants (safe to re-run).
-grant select, insert, update, delete on public.dishes to anon, authenticated;
-grant select, insert, update, delete on public.orders to anon, authenticated;
-grant select, insert, update, delete on public.order_items to anon, authenticated;
-grant select, insert, update, delete on public.ratings to anon, authenticated;
-grant select, insert, update, delete on public.wishlist to anon, authenticated;
+revoke insert, update, delete on public.dishes from anon;
+revoke insert, update, delete on public.orders from anon;
+revoke insert, update, delete on public.order_items from anon;
+revoke insert, update, delete on public.ratings from anon;
+revoke update, delete on public.wishlist from anon;
+revoke all on public.kitchen_access from anon, authenticated;
+revoke all on public.kitchen_members from anon;
+revoke insert, update, delete on public.kitchen_members from authenticated;
+
+grant select on public.dishes to anon;
+grant select on public.orders to anon;
+grant select on public.order_items to anon;
+grant select on public.ratings to anon;
+grant select, insert on public.wishlist to anon;
+
+grant select, insert, update, delete on public.dishes to authenticated;
+grant select, insert, update, delete on public.orders to authenticated;
+grant select, insert, update, delete on public.order_items to authenticated;
+grant select, insert, update, delete on public.ratings to authenticated;
+grant select, insert, update, delete on public.wishlist to authenticated;
+grant select on public.kitchen_members to authenticated;
 
 -- ------------------------------------------------------------
 -- 3. Storage: public bucket for dish photos
@@ -222,19 +380,31 @@ create policy "dish images are publicly readable" on storage.objects
 
 drop policy if exists "dish images can be uploaded" on storage.objects;
 create policy "dish images can be uploaded" on storage.objects
-  for insert to anon, authenticated
-  with check (bucket_id = 'dish-images');
+  for insert to authenticated
+  with check (
+    bucket_id = 'dish-images'
+    and public.is_kitchen_member()
+  );
 
 drop policy if exists "dish images can be updated" on storage.objects;
 create policy "dish images can be updated" on storage.objects
-  for update to anon, authenticated
-  using (bucket_id = 'dish-images')
-  with check (bucket_id = 'dish-images');
+  for update to authenticated
+  using (
+    bucket_id = 'dish-images'
+    and public.is_kitchen_member()
+  )
+  with check (
+    bucket_id = 'dish-images'
+    and public.is_kitchen_member()
+  );
 
 drop policy if exists "dish images can be deleted" on storage.objects;
 create policy "dish images can be deleted" on storage.objects
-  for delete to anon, authenticated
-  using (bucket_id = 'dish-images');
+  for delete to authenticated
+  using (
+    bucket_id = 'dish-images'
+    and public.is_kitchen_member()
+  );
 
 -- ------------------------------------------------------------
 -- 4. Realtime

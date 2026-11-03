@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { ReadOnlyHint } from "@/components/auth/RoleGate";
 import { useKitchen } from "@/components/providers/KitchenProvider";
 import { Button } from "@/components/ui/Button";
 import { DishImage } from "@/components/ui/DishImage";
@@ -23,7 +24,15 @@ import { wishTitle } from "@/lib/wish";
 
 export default function WishlistPage() {
   useDocumentTitle("心愿单");
-  const { ready, wishlist, addWish, getDish } = useKitchen();
+  const {
+    ready,
+    wishlist,
+    addWish,
+    getDish,
+    canOrder,
+    canEdit,
+    isReadOnly,
+  } = useKitchen();
   const [name, setName] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -66,7 +75,11 @@ export default function WishlistPage() {
       <PageIntro
         eyebrow="点餐员 · 小心愿"
         title="心愿单"
-        description="现在吃不到也没关系，先记下来，等大厨慢慢学。"
+        description={
+          isReadOnly
+            ? "现在可以只读看看小心愿，解锁后就能写下想吃的。"
+            : "现在吃不到也没关系，先记下来，等大厨慢慢学。"
+        }
         action={
           <span className="flex shrink-0 items-center gap-1 rounded-full bg-[#FBEEEA] px-2.5 py-1.5 text-[10.5px] font-semibold text-[#A05B4A]">
             <Heart className="size-3.5" />
@@ -75,49 +88,69 @@ export default function WishlistPage() {
         }
       />
 
-      <form
-        onSubmit={handleSubmit}
-        className="mt-5 animate-rise rounded-4xl border border-line bg-paper p-4 shadow-card"
-      >
-        <div className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-xl bg-rose-soft text-terracotta">
-            <Sparkles className="size-4" />
-          </span>
-          <h2 className="text-[13.5px] font-bold text-ink">又想吃什么啦？</h2>
-        </div>
+      {canOrder ? (
+        <form
+          onSubmit={handleSubmit}
+          className="mt-5 animate-rise rounded-4xl border border-line bg-paper p-4 shadow-card"
+        >
+          <div className="flex items-center gap-2">
+            <span className="grid size-8 place-items-center rounded-xl bg-rose-soft text-terracotta">
+              <Sparkles className="size-4" />
+            </span>
+            <h2 className="text-[13.5px] font-bold text-ink">又想吃什么啦？</h2>
+          </div>
 
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          maxLength={30}
-          placeholder="菜名，比如「麻辣香锅」"
-          className="mt-3 h-12 w-full rounded-2xl border border-line bg-cream/50 px-3.5 text-[14px] text-ink outline-none transition placeholder:text-ink-soft/45 focus:border-terracotta/60 focus:ring-2 focus:ring-terracotta/10"
-        />
-        <textarea
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          rows={2}
-          maxLength={120}
-          placeholder="写点小要求：微辣、多加藕片、想周末吃…"
-          className="mt-2 w-full resize-none rounded-2xl border border-line bg-cream/50 px-3.5 py-3 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-soft/45 focus:border-terracotta/60 focus:ring-2 focus:ring-terracotta/10"
-        />
-        <div className="mt-2 flex items-center justify-between">
-          <span className="px-1 text-[10px] text-ink-soft/60">
-            {note.length}/120
-          </span>
-          <Button type="submit" size="md" loading={saving} disabled={!name.trim()}>
-            <Plus className="size-4" />
-            放进心愿单
-          </Button>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={30}
+            placeholder="菜名，比如「麻辣香锅」"
+            className="mt-3 h-12 w-full rounded-2xl border border-line bg-cream/50 px-3.5 text-[14px] text-ink outline-none transition placeholder:text-ink-soft/45 focus:border-terracotta/60 focus:ring-2 focus:ring-terracotta/10"
+          />
+          <textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            rows={2}
+            maxLength={120}
+            placeholder="写点小要求：微辣、多加藕片、想周末吃…"
+            className="mt-2 w-full resize-none rounded-2xl border border-line bg-cream/50 px-3.5 py-3 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-soft/45 focus:border-terracotta/60 focus:ring-2 focus:ring-terracotta/10"
+          />
+          <div className="mt-2 flex items-center justify-between">
+            <span className="px-1 text-[10px] text-ink-soft/60">
+              {note.length}/120
+            </span>
+            <Button
+              type="submit"
+              size="md"
+              loading={saving}
+              disabled={!name.trim()}
+            >
+              <Plus className="size-4" />
+              放进心愿单
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <div className="mt-5">
+          <ReadOnlyHint />
         </div>
-      </form>
+      )}
 
-      <div className="mt-3 flex items-start gap-2.5 rounded-2xl border border-[#EAD8BF] bg-[#FBF1E1] px-3.5 py-3">
-        <ExternalLink className="mt-0.5 size-4 shrink-0 text-amber" />
-        <p className="text-[11px] leading-relaxed text-[#7E5B31]">
-          在小红书看到想吃的？用手机「分享」到今晚吃什么，就会自动躺进大厨的心愿收件箱。
-        </p>
-      </div>
+      {canEdit ? (
+        <div className="mt-3 flex items-start gap-2.5 rounded-2xl border border-[#EAD8BF] bg-[#FBF1E1] px-3.5 py-3">
+          <ExternalLink className="mt-0.5 size-4 shrink-0 text-amber" />
+          <p className="text-[11px] leading-relaxed text-[#7E5B31]">
+            在小红书看到想吃的？用手机「分享」到今晚吃什么，就会自动躺进大厨的心愿收件箱。
+          </p>
+        </div>
+      ) : canOrder ? (
+        <div className="mt-3 flex items-start gap-2.5 rounded-2xl border border-line bg-cream/60 px-3.5 py-3">
+          <Heart className="mt-0.5 size-4 shrink-0 text-terracotta" />
+          <p className="text-[11px] leading-relaxed text-ink-soft">
+            在小红书看到想吃的？先把菜名写进心愿单，大厨会来看看。
+          </p>
+        </div>
+      ) : null}
 
       <section className="mt-6">
         <div className="mb-2.5 flex items-center justify-between px-0.5">

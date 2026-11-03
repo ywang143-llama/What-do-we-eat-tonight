@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { RoleGate } from "@/components/auth/RoleGate";
 import { useKitchen } from "@/components/providers/KitchenProvider";
 import { Button } from "@/components/ui/Button";
 import { DishImage } from "@/components/ui/DishImage";
@@ -27,7 +28,7 @@ import { averageRating, cn, formatCalories } from "@/lib/utils";
 
 export default function ChefMenuPage() {
   useDocumentTitle("菜单管理");
-  const { ready, dishes, ratings, setDishActive } = useKitchen();
+  const { ready, dishes, ratings, setDishActive, canEdit } = useKitchen();
   const [query, setQuery] = useState("");
 
   const ratingMap = useMemo(() => {
@@ -66,6 +67,8 @@ export default function ChefMenuPage() {
       ),
     [active, ratingMap],
   );
+
+  if (!canEdit) return <RoleGate />;
 
   if (!ready) return <PageLoading label="正在整理菜谱…" />;
 
